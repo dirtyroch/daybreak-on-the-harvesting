@@ -29,6 +29,8 @@ function DefaultData.new(): any
 		receipts = {},
 		settings = { autoQueue = true, sfx = true, shortReaping = false },
 		quip = 1,
+		letters = { lastDay = -1, waiting = 0, claimed = 0 }, -- sponsor letters
+		favorBank = 0, -- Favor head start from letters, spent on the next Gallery visit
 	}
 end
 

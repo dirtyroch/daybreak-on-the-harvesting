@@ -5,7 +5,10 @@
 	  -> Launch (10 s frozen on lift plates around the Sundial) -> Arena (12:00 cap)
 	  -> Podium -> "Next match in 10s" (auto-queue keeps your play streak going).
 	Humans fill first; labeled Stand-In bots fill the rest of the 48 plates.
-	Every hit is validated here (range, arc/line of sight, cooldown, ammo, partner immunity).
+	Every hit is validated here (range, arc/line of sight, cooldown, ammo, partner + pact immunity).
+	v2: pacts with a telegraphed Pact Snap, server-owned stamina + speed check, Food/Water meters,
+	the spear throw (bounces off the Veil) and the Veil Breaker finale, the real pregame training
+	round, and the Encore top-up so a voted-back contender is paid for their best finish once.
 	Knockouts are stylized: the contender lights up gold and dissolves into light. No gore.
 ]]
 local Players = game:GetService("Players")
@@ -25,6 +28,11 @@ local Loot = require(Shared.Logic.Loot)
 local Twists = require(Shared.Logic.Twists)
 local NearMiss = require(Shared.Logic.NearMiss)
 local TimeUtil = require(Shared.Logic.TimeUtil)
+local Pacts = require(Shared.Logic.Pacts)
+local Training = require(Shared.Logic.Training)
+local Stamina = require(Shared.Logic.Stamina)
+local Meters = require(Shared.Logic.Meters)
+local Throw = require(Shared.Logic.Throw)
 
 local MatchService = {}
 local ctx: any = nil
@@ -56,6 +64,17 @@ export type Contender = {
 	slowUntil: number,
 	knockedAt: number?,
 	awarded: boolean,
+	-- v2
+	training: number?,
+	quip: number?,
+	stam: Stamina.S?,
+	meters: Meters.M?,
+	pactKept: boolean,
+	firstResult: any?,
+	toppedUp: boolean,
+	lastGood: Vector3?,
+	speedStrikes: number,
+	lastHitBetrayal: boolean,
 }
 
 MatchService.state = "Lobby"
@@ -81,6 +100,19 @@ local tokenFolder: Folder? = nil
 local hazardState: any = {}
 local rustyGiftGiven = false
 local stateEndsAt = 0
+local pacts = Pacts.new()
+local pactsEnded = false
+local trainingSeed = 1
+local boardSent = false
+local pregameStart = 0
+local pregameShort = false
+local veilShift = 0 -- seconds the Veil clock was paused (Veil Breaker calm)
+local calmUntil = 0
+local veilCore: BasePart? = nil
+local coreAngle = 0
+local veilBroken = false
+local thrownFolder: Folder? = nil
+local STAMINA_RULES: Stamina.Rules = { max = Config.STAMINA_MAX, drain = Config.STAMINA_DRAIN, regen = Config.STAMINA_REGEN, resume = Config.STAMINA_RESUME }
 
 local function now(): number
 	return workspace:GetServerTimeNow()
@@ -110,6 +142,14 @@ function MatchService.aliveCount(): number
 		end
 	end
 	return n
+end
+
+-- Reach partners until the final few, plus pacts.
+function MatchService.canHurt(a: Contender, b: Contender): boolean
+	if not Combat.canHurt(a.reach, b.reach, MatchService.aliveCount(), Config.ALLIES_UNTIL) then
+		return false
+	end
+	return Pacts.canHurt(pacts, a.id, b.id)
 end
 
 local function matchHumans(): { Player }
@@ -181,6 +221,48 @@ end
 local function pushInv(c: Contender)
 	if c.player then
 		ctx.push(c.player, "inv", { inv = c.inv, slots = c.slots, ammo = c.ammo, equipped = c.equipped, pep = c.pep })
+	end
+end
+
+local function pushPact(c: Contender)
+	if not c.player then
+		return
+	end
+	local names = {}
+	for _, id in ipairs(Pacts.allies(pacts, c.id)) do
+		local o = MatchService.contenders[id]
+		if o then
+			table.insert(names, o.name)
+		end
+	end
+	local o = pacts.offers[c.id]
+	local from = o and MatchService.contenders[o.from]
+	ctx.push(c.player, "pact", {
+		allies = names,
+		offer = from and { name = from.name, reach = from.reach } or nil,
+		snapping = pacts.snaps[c.id] ~= nil,
+		ended = pactsEnded,
+	})
+end
+
+local function pushPactsAll()
+	for _, c in pairs(MatchService.contenders) do
+		if c.alive and c.player then
+			pushPact(c)
+		end
+	end
+end
+
+local vitalsAt: { [string]: number } = {}
+local function pushVitals(c: Contender, force: boolean?)
+	local st, m = c.stam, c.meters
+	local t = os.clock()
+	if not force and (vitalsAt[c.id] or 0) + 0.25 > t then
+		return
+	end
+	vitalsAt[c.id] = t
+	if c.player and st and m then
+		ctx.push(c.player, "vitals", { stamina = st.value, tired = st.tired, sprinting = st.sprinting, food = m.food, water = m.water })
 	end
 end
 
@@ -292,6 +374,14 @@ function MatchService.knockout(c: Contender, cause: string)
 	c.alive = false
 	c.place = place
 	c.knockedAt = now()
+	local wasAllies = Pacts.allies(pacts, c.id)
+	Pacts.remove(pacts, c.id)
+	for _, id in ipairs(wasAllies) do
+		local a = MatchService.contenders[id]
+		if a then
+			pushPact(a)
+		end
+	end
 	local attacker = c.lastHitBy and MatchService.contenders[c.lastHitBy] or nil
 	if attacker and attacker ~= c then
 		attacker.knocks += 1
@@ -322,7 +412,7 @@ function MatchService.knockout(c: Contender, cause: string)
 				leader = o
 			end
 		end
-		local result = ctx.Progress.award(player, {
+		local r = {
 			place = place,
 			size = Config.MATCH_SIZE,
 			knocks = c.knocks,
@@ -330,11 +420,21 @@ function MatchService.knockout(c: Contender, cause: string)
 			tokens = c.tokens,
 			gifts = 0,
 			votes = 0,
-			encore = false,
+			encore = c.encore,
 			survived = MatchService.t,
 			partner = c.partner ~= nil and string.sub(c.partner, 1, 1) == "u",
 			bonusStars = Twists.mod({ MatchService.weekly }, "bonusStars", 0),
-		})
+			pactKept = c.pactKept,
+		}
+		local result: any
+		if c.awarded and c.firstResult then
+			-- knocked out again after an Encore: pay only the difference
+			result = ctx.Progress.topUp(player, c.firstResult, r)
+			c.toppedUp = true
+		else
+			result = ctx.Progress.award(player, r)
+			c.firstResult = r
+		end
 		c.awarded = true
 		local data = ctx.Progress.dataOf(player)
 		local nm = {
@@ -358,6 +458,7 @@ function MatchService.knockout(c: Contender, cause: string)
 			from = aroot and aroot.Position or nil,
 			at = root and root.Position or nil,
 			byModel = attacker and attacker.model or nil,
+			betrayed = c.lastHitBetrayal,
 			place = place,
 			result = result,
 			autoQueue = data and data.settings.autoQueue or false,
@@ -388,8 +489,18 @@ function MatchService.damage(target: Contender, amount: number, attacker: Conten
 		if not attacker.alive then
 			return
 		end
-		if not Combat.canHurt(attacker.reach, target.reach, MatchService.aliveCount(), Config.ALLIES_UNTIL) then
+		if not MatchService.canHurt(attacker, target) then
 			return
+		end
+		local mult, strike = Pacts.hitMult(pacts, Config.Pacts, attacker.id, target.id, now())
+		amount = math.max(1, math.floor(amount * mult + 0.5))
+		target.lastHitBetrayal = strike
+		if strike then
+			-- the betrayal moment: everyone sees it, the victim gets a beat to react
+			pushMatch("feed", { kind = "betrayal", victim = target.name, by = attacker.name, left = MatchService.aliveCount() })
+			if target.player then
+				ctx.push(target.player, "betrayed", { by = attacker.name, line = Content.RUSTY.snapped })
+			end
 		end
 		target.lastHitBy = attacker.id
 		target.lastHitWeapon = weapon
@@ -398,7 +509,11 @@ function MatchService.damage(target: Contender, amount: number, attacker: Conten
 			ctx.push(attacker.player, "hitmark", { amount = amount, name = target.name })
 		end
 	elseif weapon == "veil" or weapon == "finches" or weapon == "bloom" then
+		if weapon == "veil" and now() < calmUntil then
+			return
+		end
 		target.lastHitWeapon = weapon
+		target.lastHitBetrayal = false
 	end
 	local pep, ko = Combat.hit(target.pep, amount)
 	target.pep = pep
@@ -512,6 +627,13 @@ function MatchService.eat(c: Contender, slot: number): boolean
 	table.remove(c.inv, slot)
 	c.equipped = math.clamp(c.equipped, 1, math.max(1, #c.inv))
 	c.pep = math.min(Config.PEP_MAX, c.pep + (def.heal or 0))
+	if c.stam and def.stamina then
+		Stamina.add(c.stam, STAMINA_RULES, def.stamina)
+	end
+	if c.meters then
+		Meters.eat(c.meters, Config.Meters, def.food, def.water)
+	end
+	pushVitals(c)
 	if c.player then
 		ctx.Progress.bump(c.player, "snacks", 1)
 		ctx.push(c.player, "pep", { pep = c.pep, from = "snack" })
@@ -531,6 +653,151 @@ function MatchService.use(c: Contender, aim: Vector3?): boolean
 		return MatchService.eat(c, c.equipped)
 	end
 	return MatchService.attack(c, "shove", aim)
+end
+
+-- ===================== spear throw + Veil Breaker =====================
+local function placeCore()
+	local core = veilCore
+	if not core then
+		return
+	end
+	local r = math.max(MatchService.radius - 1, 4)
+	local pos = Vector3.new(math.cos(coreAngle) * r, 14, math.sin(coreAngle) * r)
+	core.CFrame = CFrame.lookAt(pos, Vector3.new(0, 14, 0))
+end
+
+-- Final four: the Veil Core lights up on the wall.
+local function lightCore()
+	if veilCore or veilBroken then
+		return
+	end
+	coreAngle = rng:NextNumber(0, math.pi * 2)
+	local core = Instance.new("Part")
+	core.Name = "VeilCore"
+	core.Anchored = true
+	core.CanCollide = false
+	core.Shape = Enum.PartType.Ball
+	core.Material = Enum.Material.Neon
+	core.Color = Color3.fromHex("#9FF6FF")
+	local sz = Config.VeilBreaker.coreSize
+	core.Size = Vector3.new(sz, sz, sz)
+	local light = Instance.new("PointLight")
+	light.Color = core.Color
+	light.Range = 40
+	light.Brightness = 3
+	light.Parent = core
+	core.Parent = workspace
+	veilCore = core
+	placeCore()
+	pushMatch("veilCore", { pos = core.Position })
+end
+
+local function breakVeil(by: Contender)
+	if veilBroken then
+		return
+	end
+	veilBroken = true
+	calmUntil = now() + Config.VeilBreaker.calmSeconds
+	stateEndsAt += Config.VeilBreaker.calmSeconds
+	if veilCore then
+		veilCore:Destroy()
+		veilCore = nil
+	end
+	for _, p in ipairs(veilPanels) do
+		p.Transparency = 0.7
+	end
+	pushMatch("veilBroken", { by = by.name, reach = by.reach, seconds = Config.VeilBreaker.calmSeconds })
+	if by.player then
+		ctx.Progress.grant(by.player, Config.VeilBreaker.title, "You shattered the dome! Title unlocked: " .. tostring(Content.TITLES[Config.VeilBreaker.title]))
+		ctx.Progress.bump(by.player, "veilbreak", 1)
+	end
+end
+
+-- The thrown spear lands as a pickup anyone can grab.
+local function dropSpear(at: Vector3)
+	if not thrownFolder then
+		local f = Instance.new("Folder")
+		f.Name = "ThrownSpears"
+		f.Parent = workspace
+		thrownFolder = f
+	end
+	local p = Instance.new("Part")
+	p.Name = "ThrownSpear"
+	p.Anchored = true
+	p.CanCollide = false
+	p.Size = Vector3.new(0.3, 7, 0.3)
+	p.Color = Color3.fromHex("#8A6A3A")
+	p.Material = Enum.Material.Wood
+	p.CFrame = CFrame.new(at + Vector3.new(0, 2.5, 0)) * CFrame.Angles(math.rad(25), 0, 0)
+	local pp = Instance.new("ProximityPrompt")
+	pp.ActionText = "Pick up"
+	pp.ObjectText = "Spear"
+	pp.MaxActivationDistance = 10
+	pp.Parent = p
+	pp.Triggered:Connect(function(player: Player)
+		local c = MatchService.contenderOf(player)
+		if c and c.alive and p.Parent and MatchService.give(c, "spear") then
+			p:Destroy()
+		end
+	end)
+	p.Parent = thrownFolder
+end
+
+-- Throw the equipped spear. It flies flat, bounces off the Veil once, and hits the first
+-- contender on its path. A bounced spear that crosses the lit Veil Core breaks the dome.
+function MatchService.throw(c: Contender, aim: Vector3?): boolean
+	local w = Config.Weapons.spearThrow
+	if not c.alive or MatchService.state ~= "Arena" or c.inv[c.equipped] ~= "spear" then
+		return false
+	end
+	local t = now()
+	if not Combat.ready(c.lastUse.spearThrow, t, w.cooldown) then
+		return false
+	end
+	local root = MatchService.rootOf(c)
+	if not root then
+		return false
+	end
+	c.lastUse.spearThrow = t
+	table.remove(c.inv, c.equipped)
+	c.equipped = math.clamp(c.equipped, 1, math.max(1, #c.inv))
+	setHeld(c)
+	pushInv(c)
+	local origin = root.Position + Vector3.new(0, 1.6, 0)
+	local dir = (aim and (aim - origin) or root.CFrame.LookVector)
+	local legs = Throw.legs({ x = origin.X, z = origin.Z }, { x = dir.X, z = dir.Z }, w.range, MatchService.radius, Config.VeilBreaker.bounces)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { c.model :: any, map().Arena.Veil }
+	local mult = c.kind == "bot" and Config.Bots.damageMult or 1
+	local landed = origin
+	for _, leg in ipairs(legs) do
+		local a = Vector3.new(leg.from.x, origin.Y, leg.from.z)
+		local b = Vector3.new(leg.to.x, origin.Y, leg.to.z)
+		local hit = workspace:Raycast(a, b - a, params)
+		local stop = hit and hit.Position or b
+		pushMatch("tracer", { from = a, to = stop, spear = true })
+		-- Veil Breaker: only a rebounded spear counts
+		local core = veilCore
+		if leg.bounced and core and Throw.segDist(leg.from, { x = stop.X, z = stop.Z }, { x = core.Position.X, z = core.Position.Z }) <= Config.VeilBreaker.coreSize * 0.6 then
+			breakVeil(c)
+		end
+		landed = stop
+		if hit then
+			local m = hit.Instance:FindFirstAncestorOfClass("Model")
+			while m and not byModel[m] do
+				m = m:FindFirstAncestorOfClass("Model")
+			end
+			local id = m and byModel[m]
+			local victim = id and MatchService.contenders[id]
+			if victim and victim ~= c then
+				MatchService.damage(victim, math.floor(w.damage * mult + 0.5), c, "spear", math.floor((stop - origin).Magnitude))
+			end
+			break
+		end
+	end
+	dropSpear(Vector3.new(landed.X, 0, landed.Z))
+	return true
 end
 
 -- ===================== crates + tokens =====================
@@ -681,8 +948,9 @@ local function setVeil(radius: number)
 		local pos = Vector3.new(math.cos(a) * r, 300, math.sin(a) * r)
 		p.Size = Vector3.new(math.max(w, 0.5), 640, 1)
 		p.CFrame = CFrame.lookAt(pos, Vector3.new(0, 300, 0))
-		p.Transparency = radius <= 1 and 1 or 0.1
+		p.Transparency = radius <= 1 and 1 or (if now() < calmUntil then 0.7 else 0.1)
 	end
+	placeCore()
 end
 
 function MatchService.startHazard(id: string)
@@ -842,6 +1110,19 @@ local function clearArena()
 		tokenFolder:Destroy()
 		tokenFolder = nil
 	end
+	if veilCore then
+		veilCore:Destroy()
+		veilCore = nil
+	end
+	if thrownFolder then
+		thrownFolder:Destroy()
+		thrownFolder = nil
+	end
+	pacts = Pacts.new()
+	pactsEnded = false
+	veilBroken = false
+	calmUntil = 0
+	veilShift = 0
 	resetCrates()
 	setVeil(Config.Map.ARENA_SIZE / 2)
 	Lighting.ClockTime = 6.4
@@ -937,6 +1218,10 @@ local function startPregame()
 			encore = false,
 			slowUntil = 0,
 			awarded = false,
+			pactKept = false,
+			toppedUp = false,
+			speedStrikes = 0,
+			lastHitBetrayal = false,
 		}
 		table.insert(MatchService.order, s.id)
 	end
@@ -951,16 +1236,32 @@ local function startPregame()
 	local P = Config.Pregame
 	local total = Config.pregameTotal() - (anyNew and 0 or (P.reaping - P.reapingShort))
 	MatchService.state = "Pregame"
+	pacts = Pacts.new()
+	pactsEnded = false
+	trainingSeed = MatchService.matchNo * 7919 + os.time() % 100000
+	boardSent = false
+	pregameStart = now()
+	pregameShort = not anyNew
 	stateEndsAt = now() + total
+	for _, id in ipairs(MatchService.order) do
+		local c = MatchService.contenders[id]
+		if c.kind == "bot" then
+			c.training = Training.botScore(trainingSeed, c.id)
+			c.quip = (TimeUtil.hash(trainingSeed + #c.id * 31 + string.byte(c.id, -1)) % #Content.QUIPS) + 1
+		end
+	end
 	local roster = {}
 	for _, id in ipairs(MatchService.order) do
 		local c = MatchService.contenders[id]
-		table.insert(roster, { name = c.name, reach = c.reach, bot = c.kind == "bot" })
+		table.insert(roster, { name = c.name, reach = c.reach, bot = c.kind == "bot", quip = c.quip })
 	end
 	for _, p in ipairs(humans) do
 		local c = MatchService.contenders["u" .. p.UserId]
 		local data = ctx.Progress.dataOf(p)
 		local partner = c and c.partner and MatchService.contenders[c.partner]
+		if c then
+			c.quip = data and data.quip or 1
+		end
 		ctx.push(p, "pregame", {
 			seconds = total,
 			reach = c and c.reach,
@@ -970,6 +1271,9 @@ local function startPregame()
 			twist = MatchService.twist,
 			weekly = MatchService.weekly,
 			quip = data and Content.QUIPS[data.quip] or Content.QUIPS[1],
+			quipIndex = data and data.quip or 1,
+			question = Content.QUESTIONS[(TimeUtil.hash(trainingSeed + p.UserId % 997) % #Content.QUESTIONS) + 1],
+			trainingSeed = trainingSeed,
 			humans = #humans,
 		})
 	end
@@ -1023,6 +1327,10 @@ local function startLaunch()
 				end
 				char:SetAttribute("SpeedMult", 1)
 			end
+			c.stam = Stamina.new(STAMINA_RULES)
+			c.meters = Meters.new(Config.Meters)
+			c.lastGood = nil
+			c.training = c.training or 5
 			if ctx.Progress.hasPass(c.player, "StarterSatchel") and not Config.RANKED then
 				MatchService.give(c, "apple")
 				MatchService.give(c, "canteen")
@@ -1053,6 +1361,9 @@ local function startArena()
 			if hrp then
 				hrp.Anchored = false
 			end
+			c.lastGood = nil
+			c.speedStrikes = 0
+			pushVitals(c, true)
 		end
 	end
 	ctx.Gallery.onArenaStart()
@@ -1099,11 +1410,13 @@ local function startPodium()
 		table.insert(podium, { name = all[i].name, reach = all[i].reach, place = all[i].place, knocks = all[i].knocks })
 	end
 	for _, c in ipairs(all) do
-		if c.player and c.player.Parent and not c.awarded then
-			c.awarded = true
+		-- Encore fix: someone paid at an earlier knockout and voted back in is topped up to
+		-- their final place here, once (v1 skipped them because `awarded` was already set).
+		local needsTopUp = c.awarded and c.encore and c.firstResult ~= nil and not c.toppedUp
+		if c.player and c.player.Parent and (not c.awarded or needsTopUp) then
 			local data = ctx.Progress.dataOf(c.player)
 			local prevBest = data and data.stats.bestPlace or 0
-			local result = ctx.Progress.award(c.player, {
+			local r = {
 				place = c.place or 2,
 				size = Config.MATCH_SIZE,
 				knocks = c.knocks,
@@ -1115,7 +1428,17 @@ local function startPodium()
 				survived = MatchService.t,
 				partner = c.partner ~= nil and string.sub(c.partner, 1, 1) == "u",
 				bonusStars = Twists.mod({ MatchService.weekly }, "bonusStars", 0),
-			})
+				pactKept = c.pactKept,
+			}
+			local result: any
+			if needsTopUp then
+				result = ctx.Progress.topUp(c.player, c.firstResult, r)
+				c.toppedUp = true
+			else
+				result = ctx.Progress.award(c.player, r)
+				c.firstResult = r
+			end
+			c.awarded = true
 			local nm = { place = c.place or 2, size = Config.MATCH_SIZE, knocks = c.knocks, survived = MatchService.t, bestPlace = prevBest, nextKnockGoal = ctx.Progress.nextGoal(c.player, "knocks"), winnerPepLeft = winner and winner.pep }
 			ctx.push(c.player, "finished", { headline = NearMiss.headline(nm), lines = NearMiss.lines(nm), place = c.place, result = result })
 		end
@@ -1178,6 +1501,12 @@ function MatchService.revive(c: Contender): boolean
 	c.inv = {}
 	c.slots = Config.BACKPACK_SLOTS
 	c.equipped = 1
+	c.lastGood = nil
+	c.speedStrikes = 0
+	if c.player then
+		c.stam = Stamina.new(STAMINA_RULES)
+		c.meters = Meters.new(Config.Meters)
+	end
 	MatchService.give(c, "knife")
 	if c.player then
 		local player = c.player
@@ -1308,12 +1637,309 @@ local function watch(player: Player): (boolean, string?)
 	return true, "Welcome to " .. Names.GALLERY .. "!"
 end
 
-local function training(_player: Player, score: any): (boolean, string?)
-	if type(score) ~= "number" then
+-- Training round: the client sends which targets it hit and when (seconds since the round
+-- began). The server re-creates the seeded targets and scores the clicks itself.
+local function training(player: Player, clicks: any): (boolean, string?)
+	local c = MatchService.contenderOf(player)
+	if not c or MatchService.state ~= "Pregame" or type(clicks) ~= "table" or c.training then
 		return false, nil
 	end
-	local s = math.clamp(math.floor(score), 0, 12)
-	return true, string.format("%s rates your training a %d out of 12.", Names.MENTOR_SHORT, s)
+	local list = {}
+	for k, v in ipairs(clicks) do
+		if k > 12 then
+			break
+		end
+		if type(v) == "table" and type(v.i) == "number" and type(v.t) == "number" then
+			table.insert(list, { i = math.floor(v.i), t = v.t })
+		end
+	end
+	local targets = Training.targets(trainingSeed, Config.Training.targets, Config.Training.duration)
+	local score = Training.score(targets, list, Config.Training.max)
+	c.training = score
+	return true, nil
+end
+
+-- Interview: pick one of the preset answers. Index only, never text.
+local function interview(player: Player, i: any): (boolean, string?)
+	local c = MatchService.contenderOf(player)
+	if not c or MatchService.state ~= "Pregame" or type(i) ~= "number" or not Content.QUIPS[i] then
+		return false, nil
+	end
+	local q = math.floor(i)
+	c.quip = q
+	for _, p in ipairs(matchHumans()) do
+		if p ~= player then
+			ctx.push(p, "interviewLine", { name = c.name, reach = c.reach, quip = Content.QUIPS[q] })
+		end
+	end
+	return true, nil
+end
+
+-- ===== pacts =====
+local function nearestFor(c: Contender, range: number): Contender?
+	local root = MatchService.rootOf(c)
+	if not root then
+		return nil
+	end
+	local best: Contender? = nil
+	local bestD = range
+	for _, o in pairs(MatchService.contenders) do
+		if o ~= c and o.alive and o.reach ~= c.reach and not Pacts.same(pacts, c.id, o.id) then
+			local r = MatchService.rootOf(o)
+			if r then
+				local d = (r.Position - root.Position).Magnitude
+				if d < bestD then
+					best, bestD = o, d
+				end
+			end
+		end
+	end
+	return best
+end
+
+local function botAnswer(bot: Contender, from: Contender)
+	task.delay(rng:NextNumber(1, 2.5), function()
+		if not bot.alive or not from.alive or MatchService.state ~= "Arena" then
+			return
+		end
+		if bot.pep >= 30 and rng:NextNumber() < 0.6 then
+			local p = Pacts.accept(pacts, Config.Pacts, bot.id, MatchService.aliveCount(), now())
+			if p and from.player then
+				ctx.toast(from.player, bot.name .. " accepted your pact.", "good")
+				pushMatch("feed", { kind = "pact", victim = bot.name, by = from.name, left = MatchService.aliveCount() })
+			end
+		else
+			Pacts.decline(pacts, bot.id)
+			if from.player then
+				ctx.toast(from.player, bot.name .. " turned you down.", "info")
+			end
+		end
+		pushPact(from)
+	end)
+end
+
+function MatchService.offerPact(c: Contender, target: Contender?): (boolean, string?)
+	if MatchService.state ~= "Arena" or not c.alive then
+		return false, nil
+	end
+	local o = target or nearestFor(c, Config.Pacts.offerRange)
+	if not o then
+		return false, "Nobody close enough. Get within " .. Config.Pacts.offerRange .. " studs."
+	end
+	local ok, why = Pacts.offer(pacts, Config.Pacts, c.id, o.id, MatchService.aliveCount(), now())
+	if not ok then
+		return false, why
+	end
+	if o.player then
+		pushPact(o)
+		ctx.push(o.player, "pactOffer", { name = c.name, reach = c.reach, seconds = Config.Pacts.offerSeconds })
+	else
+		botAnswer(o, c)
+	end
+	return true, "Pact offered to " .. o.name .. "."
+end
+
+local function pactOffer(player: Player): (boolean, string?)
+	local c = MatchService.contenderOf(player)
+	if not c then
+		return false, nil
+	end
+	return MatchService.offerPact(c, nil)
+end
+
+local function pactAccept(player: Player): (boolean, string?)
+	local c = MatchService.contenderOf(player)
+	if not c or not c.alive or MatchService.state ~= "Arena" then
+		return false, nil
+	end
+	local p, why = Pacts.accept(pacts, Config.Pacts, c.id, MatchService.aliveCount(), now())
+	pushPactsAll()
+	if not p then
+		return false, why
+	end
+	local names = {}
+	for _, id in ipairs(p.members) do
+		local m = MatchService.contenders[id]
+		if m then
+			table.insert(names, m.name)
+			if m.player and m ~= c then
+				ctx.toast(m.player, c.name .. " joined your pact.", "good")
+			end
+		end
+	end
+	pushMatch("feed", { kind = "pact", victim = table.concat(names, " + "), left = MatchService.aliveCount() })
+	return true, "Pact formed. " .. Content.RUSTY.pact
+end
+
+local function pactDecline(player: Player): (boolean, string?)
+	local c = MatchService.contenderOf(player)
+	if c then
+		Pacts.decline(pacts, c.id)
+		pushPact(c)
+	end
+	return true, nil
+end
+
+function MatchService.snapPact(c: Contender): (boolean, string?)
+	if MatchService.state ~= "Arena" or not c.alive then
+		return false, nil
+	end
+	local sn, why = Pacts.snap(pacts, Config.Pacts, c.id, now())
+	if not sn then
+		return false, why
+	end
+	-- telegraph: the allies are warned and the snapper glows red for the wind-up
+	for _, id in ipairs(Pacts.allies(pacts, c.id)) do
+		local a = MatchService.contenders[id]
+		if a and a.player then
+			ctx.push(a.player, "pactWarning", { name = c.name, seconds = Config.Pacts.snapSeconds })
+		end
+	end
+	if c.model then
+		local h = Instance.new("Highlight")
+		h.Name = "PactSnap"
+		h.FillColor = Color3.fromHex("#E2463A")
+		h.FillTransparency = 0.55
+		h.OutlineColor = Color3.fromHex("#FFB0A8")
+		h.Parent = c.model
+		task.delay(Config.Pacts.snapSeconds + 0.2, function()
+			h:Destroy()
+		end)
+	end
+	pushPact(c)
+	return true, string.format("Snapping your pact in %ds…", Config.Pacts.snapSeconds)
+end
+
+local function pactSnap(player: Player): (boolean, string?)
+	local c = MatchService.contenderOf(player)
+	if not c then
+		return false, nil
+	end
+	return MatchService.snapPact(c)
+end
+
+local function tickPacts()
+	for _, ev in ipairs(Pacts.tick(pacts, Config.Pacts, now())) do
+		local who = ev.who and MatchService.contenders[ev.who]
+		local names = {}
+		for _, id in ipairs(ev.with or {}) do
+			local v = MatchService.contenders[id]
+			if v then
+				table.insert(names, v.name)
+				if v.player then
+					ctx.push(v.player, "pactSnapped", { name = who and who.name or "?", line = Content.RUSTY.snapped, guard = Config.Pacts.guardSeconds })
+				end
+			end
+		end
+		if who then
+			if who.player then
+				ctx.Progress.grant(who.player, "title_turncoat", "Title unlocked: " .. Content.TITLES.title_turncoat)
+				ctx.push(who.player, "pactSnapDone", { names = names, window = Config.Pacts.betrayWindow })
+			end
+			pushMatch("feed", { kind = "pactSnap", by = who.name, victim = table.concat(names, " + "), left = MatchService.aliveCount() })
+		end
+		pushPactsAll()
+	end
+	-- final few: every pact ends; those still in one get the "pact kept" bonus
+	if not pactsEnded and MatchService.aliveCount() <= Config.Pacts.endAt then
+		pactsEnded = true
+		for _, p in ipairs(Pacts.endAll(pacts)) do
+			for _, id in ipairs(p.members) do
+				local m = MatchService.contenders[id]
+				if m and m.alive then
+					m.pactKept = true
+				end
+			end
+		end
+		pushMatch("pactsEnded", { left = MatchService.aliveCount() })
+		pushPactsAll()
+	end
+end
+
+-- Stand-Ins make the odd offer to nearby players, and sometimes snap late in the match.
+local function botPacts()
+	local alive = MatchService.aliveCount()
+	if pactsEnded then
+		return
+	end
+	for _, b in pairs(MatchService.contenders) do
+		if b.kind == "bot" and b.alive then
+			if pacts.memberOf[b.id] then
+				if alive <= 8 and rng:NextNumber() < 0.04 then
+					MatchService.snapPact(b)
+				end
+			elseif rng:NextNumber() < 0.01 then
+				local o = nearestFor(b, Config.Pacts.offerRange)
+				if o and o.player and not pacts.offers[o.id] then
+					MatchService.offerPact(b, o)
+				end
+			end
+		end
+	end
+end
+
+-- ===== sprint + throw =====
+local function sprint(player: Player, on: any): (boolean, string?)
+	local c = MatchService.contenderOf(player)
+	if c and c.stam and type(on) == "boolean" then
+		c.stam.wants = on
+	end
+	return true, nil
+end
+
+local function throw(player: Player, aim: any): (boolean, string?)
+	local c = MatchService.contenderOf(player)
+	if not c then
+		return false, nil
+	end
+	if c.inv[c.equipped] ~= "spear" then
+		return false, "Equip a spear to throw it."
+	end
+	return MatchService.throw(c, typeof(aim) == "Vector3" and aim or nil), nil
+end
+
+-- Server-owned stamina, Food/Water and WalkSpeed, plus a simple speed check (every tick).
+local function tickBodies(dt: number, wholeSecond: boolean)
+	local t = now()
+	for _, c in pairs(MatchService.contenders) do
+		local st, m = c.stam, c.meters
+		local root = if c.alive and c.player then MatchService.rootOf(c) else nil
+		local hum = c.model and c.model:FindFirstChildOfClass("Humanoid")
+		if root and hum and st and m then
+			local v = root.AssemblyLinearVelocity
+			local moving = Vector3.new(v.X, 0, v.Z).Magnitude > 2
+			Meters.step(m, Config.Meters, dt, 1)
+			local regen = Meters.regenMult(m, Config.Meters)
+			if c.player and ctx.Progress.hasPass(c.player, "TrailBoots") and not Config.RANKED then
+				regen *= 1 + Config.FairPlay.bootsRegen
+			end
+			Stamina.step(st, STAMINA_RULES, dt, moving, regen)
+			local slow = c.slowUntil > t and Config.Hazards.bloom.slow or 1
+			hum.WalkSpeed = (st.sprinting and Config.SPRINT_SPEED or Config.WALK_SPEED) * slow
+			pushVitals(c)
+			if wholeSecond then
+				local pos = root.Position
+				local last = c.lastGood
+				if last then
+					local d = Vector3.new(pos.X - last.X, 0, pos.Z - last.Z).Magnitude
+					local S = Config.SpeedCheck
+					if Stamina.tooFast(d, 1, Config.SPRINT_SPEED, S.slack, S.grace) then
+						c.speedStrikes += 1
+						if c.speedStrikes >= S.strikes then
+							c.speedStrikes = 0
+							(c.model :: Model):PivotTo(CFrame.new(last + Vector3.new(0, 3, 0)))
+							ctx.toast(c.player, "Whoa, too fast! Moved you back.", "info")
+						end
+					else
+						c.speedStrikes = math.max(0, c.speedStrikes - 1)
+						c.lastGood = pos
+					end
+				else
+					c.lastGood = pos
+				end
+			end
+		end
+	end
 end
 
 function MatchService.onLeave(player: Player)
@@ -1347,6 +1973,13 @@ function MatchService.init(c: any)
 	ctx.handle("drop", drop)
 	ctx.handle("watch", watch)
 	ctx.handle("training", training)
+	ctx.handle("interview", interview)
+	ctx.handle("pactOffer", pactOffer)
+	ctx.handle("pactAccept", pactAccept)
+	ctx.handle("pactDecline", pactDecline)
+	ctx.handle("pactSnap", pactSnap)
+	ctx.handle("sprint", sprint)
+	ctx.handle("throw", throw)
 end
 
 function MatchService.start()
@@ -1423,6 +2056,25 @@ function MatchService.start()
 						lobbyStatus()
 					end
 				elseif MatchService.state == "Pregame" then
+					-- training board: everyone's score, shown as the round ends
+					local P = Config.Pregame
+					local boardAt = pregameStart + (pregameShort and P.reapingShort or P.reaping) + P.parade + P.interview + Config.Training.duration + 0.5
+					if not boardSent and t >= boardAt then
+						boardSent = true
+						local board = {}
+						for _, id in ipairs(MatchService.order) do
+							local c = MatchService.contenders[id]
+							c.training = c.training or 5
+							table.insert(board, { name = c.name, reach = c.reach, score = c.training, me = false })
+						end
+						table.sort(board, function(a: any, b: any): boolean
+							return a.score > b.score
+						end)
+						for _, p in ipairs(matchHumans()) do
+							local mine = MatchService.contenderOf(p)
+							ctx.push(p, "trainingBoard", { board = board, mine = mine and mine.training, underdogAt = Config.Training.underdogAt })
+						end
+					end
 					if t >= stateEndsAt then
 						startLaunch()
 					end
@@ -1432,13 +2084,24 @@ function MatchService.start()
 					end
 				elseif MatchService.state == "Arena" then
 					MatchService.t = t - arenaStart
-					local r = Veil.radiusAt(MatchService.t, phases, Config.Map.ARENA_SIZE / 2)
+					-- Veil Breaker calm: the Veil clock pauses while the dome is broken
+					if t < calmUntil then
+						veilShift += dt
+					end
+					local vt = MatchService.t - veilShift
+					local r = Veil.radiusAt(vt, phases, Config.Map.ARENA_SIZE / 2)
 					if math.abs(r - MatchService.radius) > 0.05 then
 						setVeil(r)
 					end
 					tickHazards(dt, wholeSecond)
+					tickBodies(dt, wholeSecond)
+					tickPacts()
 					if wholeSecond then
-						local dmg = Veil.damage(MatchService.t, phases, Config.VEIL_DAMAGE)
+						botPacts()
+						if not veilBroken and not veilCore and MatchService.aliveCount() <= Config.VeilBreaker.at and MatchService.aliveCount() > 1 then
+							lightCore()
+						end
+						local dmg = Veil.damage(vt, phases, Config.VEIL_DAMAGE)
 						for _, c in pairs(MatchService.contenders) do
 							local root = if c.alive then MatchService.rootOf(c) else nil
 							if root then
@@ -1472,14 +2135,16 @@ function MatchService.start()
 								ctx.Gallery.dropGift(low, "sweettea", Names.MENTOR_SHORT, Content.RUSTY.gift)
 							end
 						end
-						local nextIn, target = Veil.nextShrink(MatchService.t, phases)
+						local nextIn, target = Veil.nextShrink(vt, phases)
 						pushMatch("match", {
 							t = MatchService.t,
 							alive = MatchService.aliveCount(),
 							radius = MatchService.radius,
 							nextIn = nextIn,
 							target = target,
-							shrinking = Veil.isShrinking(MatchService.t, phases),
+							shrinking = t >= calmUntil and Veil.isShrinking(vt, phases),
+							calm = t < calmUntil and math.ceil(calmUntil - t) or nil,
+							core = veilCore ~= nil,
 							twist = MatchService.twist and MatchService.twist.name,
 						})
 						if t >= stateEndsAt then

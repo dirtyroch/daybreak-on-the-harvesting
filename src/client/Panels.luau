@@ -126,6 +126,10 @@ builders.shop = function(s: any)
 	title.Text = "🛍️ Shop"
 	note("Everything here is cosmetic or a convenience. Nothing is random, and Robux never buys tiers, Stars, or Favor.", 0)
 	local shop = s.shop
+	if not shop.visible then
+		note("The shop is loading your store rules. Check back in a moment.", 1)
+		return
+	end
 	local order = 1
 	heading("Passes", order)
 	for key, p in pairs(shop.catalog.passes) do
@@ -189,7 +193,20 @@ builders.profile = function(s: any)
 			Net.act("equip", "fade", id)
 		end)
 	end
-	heading("Interview line", 30)
+	heading("Title", 25)
+	local tgrid = UI.frame({ BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, 44), LayoutOrder = 26, Parent = body })
+	UI.list(tgrid, Enum.FillDirection.Horizontal, 6)
+	UI.button("None", s.equipped.title == "" and T.gold or T.card, { Size = UDim2.new(0, 90, 0, 38), TextSize = 14, TextColor3 = s.equipped.title == "" and T.dark or T.text, Parent = tgrid }, function()
+		Net.act("equip", "title", "")
+	end)
+	for id, name in pairs(Content.TITLES) do
+		if s.owned[id] then
+			UI.button(name, s.equipped.title == id and T.gold or T.card, { Size = UDim2.new(0, 170, 0, 38), TextSize = 14, TextColor3 = s.equipped.title == id and T.dark or T.text, Parent = tgrid }, function()
+				Net.act("equip", "title", id)
+			end)
+		end
+	end
+	heading("Interview line (your default answer)", 30)
 	for i, q in ipairs(Content.QUIPS) do
 		UI.button((s.quip == i and "● " or "○ ") .. q, s.quip == i and T.cardHi or T.card, { LayoutOrder = 30 + i, Size = UDim2.new(1, -8, 0, 34), TextSize = 14, TextColor3 = T.text, TextXAlignment = Enum.TextXAlignment.Left, Parent = body }, function()
 			Net.act("quip", i)
@@ -199,6 +216,31 @@ builders.profile = function(s: any)
 		UI.button("Prestige to " .. Names.rank(s.prestige + 1), T.gold, { LayoutOrder = 60, Size = UDim2.new(0, 260, 0, 42), Parent = body }, function()
 			Net.act("prestige")
 		end)
+	end
+end
+
+builders.letters = function(s: any)
+	title.Text = "✉️ Sponsor letters"
+	local L = s.letters or { waiting = 0, from = {}, perLetter = {} }
+	note("Patrons you've won over send one letter a day, even on days you don't play. Up to 3 wait for you. Nothing in a letter is random or sold.", 0)
+	heading(L.waiting > 0 and string.format("%d letter%s waiting", L.waiting, L.waiting == 1 and "" or "s") or "No letters waiting. The next one arrives tomorrow.", 1)
+	if L.waiting > 0 then
+		UI.button(string.format("Open (+%d %s, +%d %s head start)", L.perLetter.renown * L.waiting, Names.XP, L.perLetter.favor * L.waiting, Names.FAVOR), T.gold, { LayoutOrder = 2, Size = UDim2.new(1, -8, 0, 44), TextSize = 17, Parent = body }, function()
+			Net.act("claimLetters")
+		end)
+	end
+	heading("Your patrons", 10)
+	for i, name in ipairs(L.from) do
+		note("• " .. name, 10 + i)
+	end
+	if L.next then
+		note(string.format("Next patron: %s (%s %d/%d)", L.next.name, L.next.stat, L.next.have, L.next.need), 40)
+	end
+	if L.cosmeticIn then
+		note(string.format("A cosmetic rides along in %d more letter%s.", L.cosmeticIn, L.cosmeticIn == 1 and "" or "s"), 41)
+	end
+	if s.favorBank and s.favorBank > 0 then
+		note(string.format("Banked %s for your next %s visit: %d", Names.FAVOR, Names.GALLERY, s.favorBank), 42)
 	end
 end
 

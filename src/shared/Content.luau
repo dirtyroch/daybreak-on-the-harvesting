@@ -48,6 +48,38 @@ Content.QUIPS = {
 	"I just want to see the sunrise.",
 } :: { string }
 
+-- Interview questions from the host. Answers are the preset QUIPS above: no free text.
+Content.QUESTIONS = {
+	"So! What's the plan out there?",
+	"Your Reach is watching. Anything to say to them?",
+	"Who should the other contenders be worried about?",
+	"Be honest: are you nervous?",
+	"What's in the backpack, hm?",
+	"One word for the crowd. Well, one sentence.",
+} :: { string }
+
+-- Sponsor letter patrons, in the order you can win them over. `need` is a lifetime stat.
+-- "home" always writes, so every player gets a daily letter from day one.
+Content.PATRONS = {
+	{ id = "home", name = "Your home Reach", stat = "matches", need = 0, renown = 40, favor = 6 },
+	{ id = "lamplighters", name = "The Lamplighters' Guild", stat = "top10", need = 1, renown = 25, favor = 4 },
+	{ id = "bakers", name = "Orchard Row Bakers", stat = "matches", need = 10, renown = 25, favor = 4 },
+	{ id = "rangers", name = "Ridge Rangers Club", stat = "knocks", need = 10, renown = 25, favor = 4 },
+	{ id = "choir", name = "The Meadowlark Choir", stat = "top5", need = 3, renown = 30, favor = 5 },
+	{ id = "kettle", name = "The Gilded Kettle", stat = "wins", need = 1, renown = 40, favor = 6 },
+	{ id = "glassford", name = "Glassford Lens Works", stat = "encores", need = 1, renown = 30, favor = 5 },
+	{ id = "spire", name = "A Spire Admirer", stat = "wins", need = 5, renown = 60, favor = 8 },
+} :: { { id: string, name: string, stat: string, need: number, renown: number, favor: number } }
+
+-- Cosmetics that arrive in sponsor letters, in order (every 5th letter).
+Content.LETTER_COSMETICS = { "fade_dawn", "title_patron", "fade_lantern", "title_darling" } :: { string }
+Content.TITLES = {
+	title_patron = "Patron's Pick",
+	title_darling = "Darling of the Spire",
+	title_veilbreaker = "Veil Breaker",
+	title_turncoat = "Pact Snapper",
+} :: { [string]: string }
+
 -- Rusty's lines. Short, warm, a bit rough around the edges. Never mean.
 Content.RUSTY = {
 	reaping = "Easy, kid. Breathe. I've done this walk before.",
@@ -55,6 +87,9 @@ Content.RUSTY = {
 	gift = "Thought you looked thirsty. Sweet tea, my recipe.",
 	win = "Ha! Told the whole Spire you'd make it.",
 	lose = "Good run. Shake it off. We go again.",
+	pact = "A pact's a promise. Promises are heavy. Pick who you carry.",
+	snapped = "That stung, didn't it? Now you know who they are.",
+	training = "Not bad. Not bad at all.",
 } :: { [string]: string }
 
 -- Stand-In bot first names (generic, original).
@@ -71,6 +106,8 @@ Content.FADES = {
 	fade_ember = { name = "Ember Light", color = "#FF8A4C" },
 	fade_veil = { name = "Veil Shimmer", color = "#7FF3FF" },
 	fade_bloom = { name = "Bloom Petals", color = "#FF4FB8" },
+	fade_dawn = { name = "Patron's Dawn", color = "#FFB38A" },
+	fade_lantern = { name = "Lantern Glow", color = "#FFE9A8" },
 } :: { [string]: { name: string, color: string } }
 
 return Content

@@ -28,7 +28,7 @@ local function rebuild()
 	favor.Text = string.format("🪙 %d %s  ·  earn +1 every 5 s while you watch", view.favor, Names.FAVOR)
 	UI.clear(list)
 	for i, c in ipairs(view.alive) do
-		local b = UI.button(string.format("%s%s  (%s)  Pep %d", c.partner and "👥 " or "", c.name, c.reach, math.floor(c.pep)), selected == c.id and T.gold or T.card, { LayoutOrder = i, Size = UDim2.new(1, -8, 0, 34), TextSize = 14, TextColor3 = selected == c.id and T.dark or T.text, TextXAlignment = Enum.TextXAlignment.Left, Parent = list }, function()
+		local b = UI.button(string.format("%s%s  (%s)  Pep %d%s", c.partner and "👥 " or "", c.name, c.reach, math.floor(c.pep), c.underdog and "  · underdog −20%" or ""), selected == c.id and T.gold or T.card, { LayoutOrder = i, Size = UDim2.new(1, -8, 0, 34), TextSize = 14, TextColor3 = selected == c.id and T.dark or T.text, TextXAlignment = Enum.TextXAlignment.Left, Parent = list }, function()
 			selected = c.id
 			rebuild()
 		end)
@@ -43,6 +43,9 @@ local function rebuild()
 			end
 		end
 		local cost = target and target.partner and g.partnerCost or g.cost
+		if target and target.underdog and not target.partner then
+			cost = g.underdogCost
+		end
 		UI.button(string.format("🪂 %s · %d", g.name, cost), (target and view.favor >= cost) and T.blue or T.card, { LayoutOrder = i, Size = UDim2.new(0, 150, 0, 40), TextSize = 14, TextColor3 = T.text, Parent = gifts }, function()
 			if not selected then
 				Fx.toast("Pick a contender first.", "info")

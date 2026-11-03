@@ -19,6 +19,7 @@ local Content = require(Shared.Content)
 local Gifts = require(Shared.Logic.Gifts)
 local Vote = require(Shared.Logic.Vote)
 local Twists = require(Shared.Logic.Twists)
+local Training = require(Shared.Logic.Training)
 
 local GalleryService = {}
 local ctx: any = nil
@@ -45,7 +46,12 @@ end
 
 function GalleryService.addSpectator(p: Player)
 	if not spectators[p] then
-		spectators[p] = { favor = Config.Gallery.favorStart, gifts = 0, votes = 0 }
+		-- sponsor letters bank a Favor head start for the next visit
+		local bank = ctx.Progress.takeFavorBank(p)
+		spectators[p] = { favor = Config.Gallery.favorStart + bank, gifts = 0, votes = 0 }
+		if bank > 0 then
+			ctx.toast(p, string.format("Your patrons sent +%d %s for today's gifts.", bank, Names.FAVOR), "good")
+		end
 	end
 	ctx.push(p, "gallery", GalleryService.view(p))
 end
@@ -186,12 +192,13 @@ function GalleryService.view(p: Player): any
 		local c = ctx.Match.contenders[id]
 		if c and c.alive then
 			local isPartner = mine ~= nil and mine.partner == c.id
-			table.insert(alive, { id = c.id, name = c.name, reach = c.reach, pep = c.pep, partner = isPartner, bot = c.kind == "bot" })
+			local under = Training.giftMult(c.training, Config.Training.underdogAt, Config.Training.underdogGiftMult) < 1
+			table.insert(alive, { id = c.id, name = c.name, reach = c.reach, pep = c.pep, partner = isPartner, bot = c.kind == "bot", underdog = under, training = c.training })
 		end
 	end
 	local gifts = {}
 	for _, g in ipairs(Config.Gifts) do
-		table.insert(gifts, { id = g.id, name = g.name, cost = Gifts.cost(g.cost, count, false, Config.Gallery.partnerDiscount, weekMult), partnerCost = Gifts.cost(g.cost, count, true, Config.Gallery.partnerDiscount, weekMult) })
+		table.insert(gifts, { id = g.id, name = g.name, cost = Gifts.cost(g.cost, count, false, Config.Gallery.partnerDiscount, weekMult), partnerCost = Gifts.cost(g.cost, count, true, Config.Gallery.partnerDiscount, weekMult), underdogCost = Gifts.cost(g.cost, count, false, Config.Gallery.partnerDiscount, weekMult * Config.Training.underdogGiftMult) })
 	end
 	local hb = hazardBallot
 	local eb = encoreBallot
@@ -254,7 +261,9 @@ local function gift(player: Player, targetId: any, giftId: any): (boolean, strin
 	end
 	local mine = ctx.Match.contenderOf(player)
 	local isPartner = mine ~= nil and mine.partner == c.id
-	local cost = Gifts.cost(g.cost, ctx.Match.aliveCount(), isPartner, Config.Gallery.partnerDiscount, Twists.mod({ ctx.Match.weekly }, "giftCost", 1))
+	-- underdog rule: a low training score makes gifts to that contender cheaper
+	local under = Training.giftMult(c.training, Config.Training.underdogAt, Config.Training.underdogGiftMult)
+	local cost = Gifts.cost(g.cost, ctx.Match.aliveCount(), isPartner, Config.Gallery.partnerDiscount, Twists.mod({ ctx.Match.weekly }, "giftCost", 1) * under)
 	if s.favor < cost then
 		return false, string.format("Needs %d %s. You earn it by watching.", cost, Names.FAVOR)
 	end
@@ -263,6 +272,10 @@ local function gift(player: Player, targetId: any, giftId: any): (boolean, strin
 	lastGift[targetId] = now()
 	GalleryService.dropGift(c, g.item, player.DisplayName, nil)
 	ctx.Progress.bump(player, "gifts", 1)
+	local pd = ctx.Progress.dataOf(player)
+	if pd then
+		pd.stats.gifts += 1
+	end
 	pushViews()
 	return true, "Gift away! 🪂"
 end

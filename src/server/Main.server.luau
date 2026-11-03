@@ -46,6 +46,7 @@ local ctx: any = {
 	Bots = require(Services.BotService),
 	Gallery = require(Services.GalleryService),
 	Purchase = require(Services.PurchaseService),
+	Look = require(Services.LookService),
 	Remotes = { Action = action, Push = push },
 }
 
@@ -99,7 +100,7 @@ Players.PlayerRemoving:Connect(function(p)
 end)
 
 ctx.Data.start()
-for _, name in ipairs({ "Progress", "Bots", "Gallery", "Purchase", "Match" }) do
+for _, name in ipairs({ "Look", "Progress", "Bots", "Gallery", "Purchase", "Match" }) do
 	local svc = ctx[name]
 	if svc.start then
 		svc.start()

@@ -1,6 +1,8 @@
 --!strict
 -- Client entry: builds the UI in code, wires server pushes, and handles arena input
--- (click to use the held item, 1–6 to pick a slot, Shift to sprint).
+-- (click to use the held item, 1–6 to pick a slot, Shift to sprint, Q / right-click to throw a
+-- spear, P to offer a pact, Y/N to answer one, X to snap yours). Stamina is server-owned: the
+-- client only says "I want to sprint" and shows what the server sends back.
 local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
@@ -89,6 +91,40 @@ Net.on("token", function(d)
 	Sfx.play("coins")
 	Fx.pop((d.new and "New token! " or "Token: ") .. d.name, UI.Theme.gold, 28)
 end)
+Net.on("pactOffer", function(d)
+	Sfx.play("ding")
+	Fx.announce("🤝 " .. d.name .. " offers a pact", UI.Theme.blue, 2.2)
+	Fx.toast(string.format("%s (%s) wants a pact. Y to accept, N to decline (%ds).", d.name, d.reach, d.seconds), "info")
+end)
+Net.on("pactWarning", function(d)
+	Sfx.play("hiss", 1.3)
+	Fx.announce("⚠ " .. d.name .. " is snapping your pact!", UI.Theme.red, d.seconds)
+end)
+Net.on("pactSnapped", function(d)
+	Fx.announce("💔 " .. d.name .. " broke your pact", UI.Theme.red, 2.4)
+	Fx.toast("“" .. d.line .. "” (Guarded for " .. d.guard .. "s)", "info")
+end)
+Net.on("pactSnapDone", function(d)
+	Fx.announce("Pact snapped", UI.Theme.red, 1.6)
+	Fx.toast(string.format("Your first hit on %s in %ds is a Pact Snap strike.", table.concat(d.names, " or "), d.window), "info")
+end)
+Net.on("pactsEnded", function(d)
+	Fx.announce(string.format("Final %d: every pact is over", d.left), UI.Theme.gold, 2.4)
+end)
+Net.on("veilCore", function()
+	Sfx.play("hiss", 0.7)
+	Fx.announce("The Veil Core is glowing", UI.Theme.veil, 2.6)
+	Fx.toast("Bounce a thrown spear off " .. Names.VEIL .. " into the Core to break the dome.", "info")
+end)
+Net.on("veilBroken", function(d)
+	Sfx.play("fanfare")
+	Fx.announce(string.format("💥 %s broke the dome!", d.by), UI.Theme.veil, 3)
+	Fx.toast(string.format("%s is calm for %ds.", Names.VEIL, d.seconds), "good")
+end)
+Net.on("betrayed", function(d)
+	Fx.hit()
+	Fx.toast("“" .. d.line .. "”", "bad")
+end)
 Net.on("gift", function(d)
 	Sfx.play("ding")
 	Fx.announce("🪂 Gift from " .. d.from .. "!", UI.Theme.blue, 2.4)
@@ -98,8 +134,13 @@ Net.on("gift", function(d)
 end)
 
 -- ===== arena input =====
-local stamina = Config.STAMINA_MAX
 local sprinting = false
+local function setSprint(on: boolean)
+	if on ~= sprinting then
+		sprinting = on
+		task.spawn(Net.act, "sprint", on)
+	end
+end
 
 local function arena(): boolean
 	return Hud.mode == "arena" and not Cutscene.playing
@@ -114,8 +155,20 @@ UserInputService.InputBegan:Connect(function(input: InputObject, processed: bool
 			local mouse = player:GetMouse()
 			Net.act("use", mouse.Hit.Position)
 		end
+	elseif input.UserInputType == Enum.UserInputType.MouseButton2 or input.KeyCode == Enum.KeyCode.Q then
+		if arena() and not Panels.isOpen() then
+			Net.act("throw", player:GetMouse().Hit.Position)
+		end
 	elseif input.KeyCode == Enum.KeyCode.LeftShift then
-		sprinting = true
+		setSprint(true)
+	elseif input.KeyCode == Enum.KeyCode.P and arena() then
+		Net.act("pactOffer")
+	elseif input.KeyCode == Enum.KeyCode.Y and arena() then
+		Net.act("pactAccept")
+	elseif input.KeyCode == Enum.KeyCode.N and arena() then
+		Net.act("pactDecline")
+	elseif input.KeyCode == Enum.KeyCode.X and arena() then
+		Net.act("pactSnap")
 	elseif input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.ButtonB then
 		Panels.close()
 		Cutscene.skip()
@@ -128,26 +181,16 @@ UserInputService.InputBegan:Connect(function(input: InputObject, processed: bool
 end)
 UserInputService.InputEnded:Connect(function(input: InputObject)
 	if input.KeyCode == Enum.KeyCode.LeftShift then
-		sprinting = false
+		setSprint(false)
 	end
 end)
-
-RunService.Heartbeat:Connect(function(dt: number)
-	local char = player.Character
-	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	if not hum or not char then
-		return
-	end
-	local mult = (char:GetAttribute("SpeedMult") or 1) :: number
-	local moving = hum.MoveDirection.Magnitude > 0.1
-	if arena() and sprinting and moving and stamina > 0 then
-		stamina = math.max(0, stamina - Config.STAMINA_DRAIN * dt)
-		hum.WalkSpeed = Config.SPRINT_SPEED * mult
-	else
-		stamina = math.min(Config.STAMINA_MAX, stamina + Config.STAMINA_REGEN * dt)
-		hum.WalkSpeed = Config.WALK_SPEED * mult
+Net.on("arena", function()
+	if sprinting then
+		task.spawn(Net.act, "sprint", true)
 	end
 end)
+local _ = RunService
+local _c = Config
 
 task.spawn(function()
 	while true do

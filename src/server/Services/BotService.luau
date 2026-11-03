@@ -5,7 +5,6 @@
 	A simple 4 Hz brain: grab a crate, eat when low, fight what's close, flee the Veil.
 	Bots deal 80% damage and aim with some spread so new players can win.
 ]]
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -68,21 +67,10 @@ local function simpleRig(name: string): Model
 end
 
 local function makeRig(name: string): Model
-	local ok, model = pcall(function()
-		local d = Instance.new("HumanoidDescription")
-		local skin = color(SKIN[rng:NextInteger(1, #SKIN)])
-		d.HeadColor = skin
-		d.LeftArmColor = skin
-		d.RightArmColor = skin
-		d.TorsoColor = color(SHIRT[rng:NextInteger(1, #SHIRT)])
-		local legs = color(PANTS[rng:NextInteger(1, #PANTS)])
-		d.LeftLegColor = legs
-		d.RightLegColor = legs
-		return Players:CreateHumanoidModelFromDescription(d, Enum.HumanoidRigType.R15)
-	end)
-	if ok and model then
-		model.Name = name
-		return model
+	-- realistic R15 Stand-In (see LookService / Shared/Look.luau); blocky fallback only offline
+	local rig = ctx and ctx.Look and ctx.Look.standIn(name, rng)
+	if rig then
+		return rig
 	end
 	return simpleRig(name)
 end
@@ -197,7 +185,7 @@ local function think(c: any, b: any, _t: number)
 	local enemy: any = nil
 	local enemyD = Config.Bots.sight
 	for _, o in pairs(M.contenders) do
-		if o ~= c and o.alive and (o.reach ~= c.reach or M.aliveCount() <= Config.ALLIES_UNTIL) then
+		if o ~= c and o.alive and M.canHurt(c, o) then
 			local orr = M.rootOf(o)
 			if orr then
 				local d = (orr.Position - pos).Magnitude

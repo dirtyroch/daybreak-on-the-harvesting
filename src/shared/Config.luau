@@ -2,7 +2,7 @@
 -- All tuning numbers in one place. Names live in Names.luau; Robux IDs in Monetization.luau.
 local Config = {}
 
-Config.VERSION = "v1.0 vertical slice"
+Config.VERSION = "v2.0"
 Config.AUTOSAVE_SECONDS = 90
 
 -- ===== Match size: exactly 48 contenders (24 Reaches x 2) =====
@@ -44,11 +44,12 @@ Config.Map = {
 Config.Pregame = {
 	reaping = 14,
 	reapingShort = 3,
-	parade = 8,
-	interview = 8,
-	training = 8,
+	parade = 7,
+	interview = 7,
+	training = 9, -- 6 s target round + 3 s score board
 	launch = 10,
 }
+Config.Training = { targets = 5, duration = 6, max = 10, underdogAt = 4, underdogGiftMult = 0.8 }
 function Config.pregameTotal(): number
 	local p = Config.Pregame
 	return p.reaping + p.parade + p.interview + p.training
@@ -80,28 +81,55 @@ Config.STAMINA_REGEN = 14 -- per second
 Config.BACKPACK_SLOTS = 3
 Config.BACKPACK_SLOTS_BIG = 6
 Config.ALLIES_UNTIL = 4 -- Reach partners can't hurt each other until 4 remain
+Config.STAMINA_RESUME = 25 -- after running dry, sprint again once stamina is back to this
+Config.SpeedCheck = { slack = 1.35, grace = 6, strikes = 3 } -- server rubber-bands repeat speeders
+
+-- ===== Pacts (in-match alliances across Reaches; see Logic/Pacts.luau) =====
+Config.Pacts = {
+	maxSize = 4,
+	offerSeconds = 10,
+	offerRange = 40, -- studs: you can only offer to someone nearby
+	snapSeconds = 3, -- visible wind-up before a pact breaks
+	betrayWindow = 6, -- seconds the snapper's first hit on an ex-ally is a "Pact Snap" strike
+	betrayBonus = 1.5,
+	guardSeconds = 4, -- the betrayed take 50% less damage from everyone else for a moment
+	guardMult = 0.5,
+	endAt = 4, -- every pact ends when 4 remain (same as Reach partners)
+	cooldown = 20, -- after snapping, wait before joining a new pact
+}
+
+-- ===== Food and water (slow meters; low meters slow stamina, they never knock you out) =====
+Config.Meters = {
+	max = 100,
+	start = 80,
+	foodDrain = 100 / 300, -- empty after ~5 min without eating
+	waterDrain = 100 / 240, -- empty after ~4 min without drinking
+	low = 25, -- under this, stamina refills at lowRegen
+	lowRegen = 0.6, -- per low meter (both low = 0.36)
+}
 
 -- ===== Weapons and items =====
 export type Weapon = { id: string, name: string, kind: string, damage: number, range: number, cooldown: number, arc: number?, ammo: number? }
 Config.Weapons = {
 	bow = { id = "bow", name = "Bow", kind = "ranged", damage = 22, range = 170, cooldown = 0.9, ammo = 8 },
 	spear = { id = "spear", name = "Spear", kind = "melee", damage = 24, range = 10, cooldown = 0.8, arc = 70 },
+	spearThrow = { id = "spearThrow", name = "Spear Throw", kind = "thrown", damage = 34, range = 90, cooldown = 1.2 },
 	knife = { id = "knife", name = "Knife", kind = "melee", damage = 14, range = 7, cooldown = 0.4, arc = 70 },
 	shove = { id = "shove", name = "Shove", kind = "melee", damage = 5, range = 6, cooldown = 0.6, arc = 70 },
 } :: { [string]: Weapon }
 
-export type Item = { id: string, name: string, kind: string, heal: number?, stamina: number?, weapon: string?, ammo: number? }
+export type Item = { id: string, name: string, kind: string, heal: number?, stamina: number?, weapon: string?, ammo: number?, food: number?, water: number? }
 Config.Items = {
 	bow = { id = "bow", name = "Bow", kind = "weapon", weapon = "bow" },
 	spear = { id = "spear", name = "Spear", kind = "weapon", weapon = "spear" },
 	knife = { id = "knife", name = "Knife", kind = "weapon", weapon = "knife" },
 	arrows = { id = "arrows", name = "Arrows x6", kind = "ammo", ammo = 6 },
 	backpack = { id = "backpack", name = "Backpack", kind = "backpack" },
-	trailmix = { id = "trailmix", name = "Trail Mix", kind = "snack", heal = 20 },
-	apple = { id = "apple", name = "Apple", kind = "snack", heal = 15, stamina = 20 },
-	canteen = { id = "canteen", name = "Canteen", kind = "snack", heal = 10, stamina = 60 },
+	trailmix = { id = "trailmix", name = "Trail Mix", kind = "snack", heal = 20, food = 60 },
+	apple = { id = "apple", name = "Apple", kind = "snack", heal = 15, stamina = 20, food = 35, water = 15 },
+	canteen = { id = "canteen", name = "Canteen", kind = "snack", heal = 10, stamina = 60, water = 80 },
 	bandage = { id = "bandage", name = "Bandage", kind = "snack", heal = 35 },
-	sweettea = { id = "sweettea", name = "Rusty's Sweet Tea", kind = "snack", heal = 100, stamina = 100 },
+	sweettea = { id = "sweettea", name = "Rusty's Sweet Tea", kind = "snack", heal = 100, stamina = 100, food = 40, water = 100 },
 } :: { [string]: Item }
 
 -- Crate loot tables (weights). Hub crates are richer. Rates are shown in the Help panel.
@@ -144,6 +172,15 @@ Config.Gifts = {
 -- Spectator vote-back ("Encore"): once a match the Gallery can vote one contender back in.
 Config.Encore = { at = 330, length = 20, minAlive = 6, pep = 50, candidates = 3 }
 
+-- Sponsor letters: one a day from the patrons you've won over (see Logic/Sponsors.luau)
+Config.Sponsors = { maxStack = 3, cosmeticEvery = 5, favorCap = 60 }
+
+-- Veil Breaker finale: thrown spears bounce off the Veil. When the final four remain the Veil
+-- Core lights up on the wall; a spear that has bounced off the Veil and then hits the Core
+-- shatters the dome: the Veil stops closing and stops hurting for `calmSeconds`, and the thrower
+-- earns the Veil Breaker title. Once per match.
+Config.VeilBreaker = { at = 4, coreSize = 14, calmSeconds = 45, bounces = 1, title = "title_veilbreaker" }
+
 -- Rusty's in-match gift: one sweet tea to the human contender with the lowest Pep when 8 remain.
 Config.RUSTY_GIFT_AT = 8
 
@@ -161,6 +198,7 @@ Config.XP = {
 	token = 25,
 	top10 = 30,
 	encore = 20,
+	pactKept = 20, -- still in a pact when pacts end at the final four
 }
 Config.PLAY_STREAK_WINDOW = 240 -- seconds between matches to keep a play streak
 Config.PLAY_STREAK_STEP = 0.1

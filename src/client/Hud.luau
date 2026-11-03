@@ -16,6 +16,8 @@ Hud.lobby = nil :: any
 Hud.match = nil :: any
 Hud.inv = nil :: any
 Hud.pep = Config.PEP_MAX
+Hud.vitals = nil :: any -- server-owned stamina + Food/Water
+Hud.pact = nil :: any
 Hud.mode = "lobby" -- "lobby" | "pregame" | "arena" | "gallery"
 
 local function secs(n: number?): string
@@ -41,6 +43,7 @@ end
 local MENU = {
 	{ id = "season", text = "🌅 " .. Names.TRACK },
 	{ id = "challenges", text = "📜 Challenges" },
+	{ id = "letters", text = "✉️ Letters" },
 	{ id = "reach", text = "🏳️ My Reach" },
 	{ id = "tokens", text = "🪙 " .. Names.TOKENS },
 	{ id = "shop", text = "🛍️ Shop" },
@@ -49,7 +52,7 @@ local MENU = {
 }
 
 local function menu(parent: Frame)
-	local col = UI.frame({ Name = "Menu", BackgroundTransparency = 1, Position = UDim2.new(0, 10, 0.5, -170), Size = UDim2.new(0, 190, 0, 340), Parent = parent })
+	local col = UI.frame({ Name = "Menu", BackgroundTransparency = 1, Position = UDim2.new(0, 10, 0.5, -192), Size = UDim2.new(0, 190, 0, 384), Parent = parent })
 	UI.list(col, nil, 6)
 	refs.badges = {}
 	for i, m in ipairs(MENU) do
@@ -92,14 +95,44 @@ local function lobbyCard(parent: Frame)
 end
 
 local function arenaHud(parent: Frame)
-	local box = UI.frame({ Name = "Vitals", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 14, 1, -14), Size = UDim2.new(0, 300, 0, 74), BackgroundTransparency = 0.1, Parent = parent })
+	local box = UI.frame({ Name = "Vitals", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 14, 1, -14), Size = UDim2.new(0, 300, 0, 112), BackgroundTransparency = 0.1, Parent = parent })
 	UI.corner(box, 12)
 	UI.pad(box, 10)
 	refs.pepLabel = UI.label("Pep 100", { Size = UDim2.new(1, 0, 0, 20), TextSize = 17, Parent = box })
 	local _, pepFill = UI.bar(box, Color3.fromHex("#E0B44A"), { Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, 0, 0, 14) })
 	refs.pepFill = pepFill
-	refs.ammo = UI.label("", { Position = UDim2.new(0, 0, 0, 40), Size = UDim2.new(1, 0, 0, 18), TextSize = 14, Font = T.body, TextColor3 = T.dim, Parent = box })
+	local function small(y: number, color: Color3, label: string, x: number, w: number): Frame
+		UI.label(label, { Position = UDim2.new(x, 0, 0, y), Size = UDim2.new(w, -4, 0, 14), TextSize = 12, Font = T.body, TextColor3 = T.dim, Parent = box })
+		local _, fill = UI.bar(box, color, { Position = UDim2.new(x, 0, 0, y + 15), Size = UDim2.new(w, -6, 0, 8) })
+		return fill
+	end
+	refs.stamFill = small(42, Color3.fromHex("#8FD27A"), "Stamina", 0, 0.34)
+	refs.foodFill = small(42, Color3.fromHex("#D9A15B"), "Food", 0.34, 0.33)
+	refs.waterFill = small(42, Color3.fromHex("#6FB6E0"), "Water", 0.67, 0.33)
+	refs.ammo = UI.label("", { Position = UDim2.new(0, 0, 0, 70), Size = UDim2.new(1, 0, 0, 18), TextSize = 13, Font = T.body, TextColor3 = T.dim, TextWrapped = true, Parent = box })
 	refs.vitals = box
+
+	-- Pact box: who you're allied with, offers, and the snap button.
+	local pb = UI.frame({ Name = "Pact", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 188), Size = UDim2.new(0, 250, 0, 96), BackgroundTransparency = 0.1, Parent = parent })
+	UI.corner(pb, 12)
+	UI.pad(pb, 8)
+	refs.pactText = UI.label("", { Size = UDim2.new(1, 0, 0, 40), TextSize = 14, Font = T.body, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, Parent = pb })
+	local prow = UI.frame({ BackgroundTransparency = 1, Position = UDim2.new(0, 0, 1, -36), Size = UDim2.new(1, 0, 0, 34), Parent = pb })
+	UI.list(prow, Enum.FillDirection.Horizontal, 6)
+	refs.pactA = UI.button("Offer pact (P)", T.blue, { LayoutOrder = 1, Size = UDim2.new(0.5, -3, 1, 0), TextSize = 13, Parent = prow }, function()
+		local p = Hud.pact
+		if p and p.offer then
+			Net.act("pactAccept")
+		elseif p and #p.allies > 0 then
+			Net.act("pactSnap")
+		else
+			Net.act("pactOffer")
+		end
+	end)
+	refs.pactB = UI.button("Decline (N)", T.card, { LayoutOrder = 2, Size = UDim2.new(0.5, -3, 1, 0), TextSize = 13, TextColor3 = T.text, Parent = prow }, function()
+		Net.act("pactDecline")
+	end)
+	refs.pact = pb
 
 	local info = UI.frame({ Name = "MatchInfo", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 74), Size = UDim2.new(0, 250, 0, 106), BackgroundTransparency = 0.1, Parent = parent })
 	UI.corner(info, 12)
@@ -144,6 +177,16 @@ function Hud.mount(parent: Frame, p: any)
 	Net.on("pep", function(d)
 		Hud.pep = d.pep
 	end)
+	Net.on("vitals", function(d)
+		Hud.vitals = d
+	end)
+	Net.on("pact", function(d)
+		Hud.pact = d
+	end)
+	Net.on("matchStart", function()
+		Hud.pact = nil
+		Hud.vitals = nil
+	end)
 	Net.on("arena", function()
 		Hud.mode = "arena"
 	end)
@@ -172,6 +215,9 @@ function Hud.update()
 		refs.badges.season.Text = tostring(seasonBadge)
 		refs.badges.challenges.Visible = openChallenges > 0
 		refs.badges.challenges.Text = tostring(openChallenges)
+		local letters = s.letters and s.letters.waiting or 0
+		refs.badges.letters.Visible = letters > 0
+		refs.badges.letters.Text = tostring(letters)
 	end
 	local inArena = Hud.mode == "arena"
 	refs.vitals.Visible = inArena
@@ -180,6 +226,25 @@ function Hud.update()
 	refs.menu.Visible = Hud.mode == "lobby"
 	refs.lobbyCard.Visible = Hud.mode == "lobby"
 	refs.edge.Visible = inArena
+	local pa = Hud.pact
+	refs.pact.Visible = inArena and not (pa and pa.ended)
+	if inArena then
+		if pa and pa.offer then
+			refs.pactText.Text = string.format("🤝 %s (%s) offers a pact.", pa.offer.name, pa.offer.reach)
+			refs.pactA.Text = "Accept (Y)"
+			refs.pactB.Visible = true
+		elseif pa and #pa.allies > 0 then
+			refs.pactText.Text = (pa.snapping and "Snapping… " or "Pact: ") .. table.concat(pa.allies, ", ")
+			refs.pactA.Text = pa.snapping and "Snapping…" or "Snap pact (X)"
+			refs.pactA.BackgroundColor3 = T.red
+			refs.pactB.Visible = false
+		else
+			refs.pactText.Text = "No pact. Get close to someone from another " .. Names.REGION .. " and offer one."
+			refs.pactA.Text = "Offer pact (P)"
+			refs.pactA.BackgroundColor3 = T.blue
+			refs.pactB.Visible = false
+		end
+	end
 	local l = Hud.lobby
 	if l then
 		if l.state == "Arena" or l.state == "Pregame" or l.state == "Launch" then
@@ -198,7 +263,11 @@ function Hud.update()
 	local m = Hud.match
 	if m and (inArena or Hud.mode == "gallery") then
 		refs.alive.Text = string.format("%d left", m.alive)
-		if m.shrinking then
+		if m.calm then
+			refs.veil.Text = string.format("Dome broken! %s calm for %ds", Names.VEIL, m.calm)
+		elseif m.core then
+			refs.veil.Text = "The Veil Core is lit: bounce a spear into it"
+		elseif m.shrinking then
 			refs.veil.Text = string.format("%s is closing!", Names.VEIL)
 		elseif m.nextIn then
 			refs.veil.Text = string.format("%s moves in %s", Names.VEIL, secs(m.nextIn))
@@ -237,7 +306,13 @@ function Hud.update()
 				stroke.Color = (inv and inv.equipped == i) and T.gold or Color3.fromHex("#0E1018")
 			end
 		end
-		refs.ammo.Text = inv and string.format("Arrows %d · Bag %d/%d · Click to use · Shift to sprint", inv.ammo, #inv.inv, inv.slots) or ""
+		refs.ammo.Text = inv and string.format("Arrows %d · Bag %d/%d · Click use · Shift sprint · Q throw spear", inv.ammo, #inv.inv, inv.slots) or ""
+		local v = Hud.vitals
+		local M = Config.Meters
+		refs.stamFill.Size = UDim2.new(math.clamp((v and v.stamina or Config.STAMINA_MAX) / Config.STAMINA_MAX, 0, 1), 0, 1, 0)
+		refs.stamFill.BackgroundColor3 = (v and v.tired) and T.red or Color3.fromHex("#8FD27A")
+		refs.foodFill.Size = UDim2.new(math.clamp((v and v.food or M.start) / M.max, 0, 1), 0, 1, 0)
+		refs.waterFill.Size = UDim2.new(math.clamp((v and v.water or M.start) / M.max, 0, 1), 0, 1, 0)
 	end
 end
 

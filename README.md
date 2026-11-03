@@ -9,28 +9,32 @@ knocked-out contender back in.
 > title. It may draw a trademark or impersonation takedown. Every player-facing name lives in
 > **`src/shared/Names.luau`** (the name-swap kit), so a rename is one file, one rebuild, one publish.
 
-## What's in v1
+## What's in v2
 
 | Area | Status |
 |---|---|
 | Lobby plaza, Draw stage, Rusty walk-up cutscene (skippable) | **Playable** |
+| The Capital Parade (floats; your Reach rolls out first), interview with Monty Gleam (3 preset answers, no chat), training range with a score reveal. All short and skippable | **Playable** (new) |
 | Queue with Stand-In bots to fill to 48, auto-requeue, "Next match in 10s" | **Playable** |
 | Real 2,400-stud arena: Sundial hub + crates, Gilded Meadow, Mirror Lake, Whisperwood, Ashen Ridge, Old Glassford, open fields | **Playable** |
-| Combat (bow, knife, shove; spear melee), Pep health, snacks, loot crates, the Veil (shrinking, damage outside) | **Playable** |
+| Combat (bow, knife, shove; spear melee **and spear throw** that bounces off the Veil once), Pep health, snacks, loot crates, the Veil | **Playable** |
+| **Pacts**: offer, accept or decline a pact with a nearby contender from another Reach; snap it for a 3-second betrayal warning, a "Betrayed by…" kill-cam and a Turncoat title. Pacts end at 4 left | **Playable** (new) |
+| **Sponsor letters**: pre-written letters from your Reach's sponsors with small, earned gifts | **Playable** (new) |
+| **Food and water meters** (low meters slow stamina regen only) | **Playable** (new) |
+| **Veil Breaker finale**: at 4 left a core lights; hit it with a thrown spear to calm the Veil | **Playable** (new) |
 | Reach partners (allies until 4 remain), partner queue | **Playable** |
-| Viewing Gallery: Favor, parachute gifts, hazard ballots, Encore vote-back | **Playable** |
-| Kill-cam "how you got tapped", near-miss stats card, results + Play again | **Playable** |
-| Contender levels, prestige (★1-★4), daily/weekly challenges, carry-over match streak, daily streak | **Playable** |
-| Free Season Track + premium cosmetic lane (no randomness), Reach loyalty standings, Jubilee Tokens, Rusty gifts | **Playable** |
-| Rotating twists and weekly Jubilee rules | **Playable** |
-| Shop: passes/products with IDs at 0 (hidden live; free "Studio test" grant) | **Playable in Studio** |
-| Parade, interview, training range | **Stubbed** (cards only) |
-| Food/water meters, spear throw, Veil Breaker finale | **Stubbed** |
+| Viewing Gallery: Favor, parachute gifts, hazard ballots, Encore vote-back | **Playable** (podium reward bug fixed) |
+| Kill-cam, near-miss stats card, results + Play again | **Playable** |
+| Levels, prestige, challenges, streaks, Season Track, Reach standings, Jubilee Tokens, Rusty gifts, twists | **Playable** |
+| Shop: passes/products with IDs at 0 (hidden live; free "Studio test" grant); **PolicyService check** hides paid items where they aren't allowed | **Playable in Studio** |
+| **Stamina**: server-authoritative, with a speed check that rubber-bands speed hacks | **Playable** (moved to server) |
+| **Realism pass**: human-proportioned NPCs and Stand-Ins (no blocky or chibi shapes), Future lighting, dawn Atmosphere, film grade, cutscene depth of field, rusted metal / weathered wood / worn stone / grass / dirt, grass clumps, dust motes, lake mist, muted palette | **Built** (part-built approximations; see below) |
+| Real skin, cloth and moving faces (Dynamic Heads, layered clothing, body bundles) | **Needs Studio assets**: slots ready in `src/shared/Look.luau`, spec in PUBLISHING §9 |
 | Cross-server matchmaking (`Config.Matchmaking.crossServer = false`) | **Stubbed**: one server runs lobby + arena |
-| Encore re-award at the podium | **Known gap**: a revived contender who was already awarded at knockout is skipped |
-| Stamina | Client-side only in v1 |
 
-v1 has not been play-tested in live Roblox Studio yet. Everything below passes on the command line.
+**How realistic is it, honestly?** The part-built people have real proportions, faces, coats and boots, and the world is lit and graded like a film. Up close they're still made of smooth shapes. They only look truly realistic once real body bundles, Dynamic Heads and layered clothing IDs go into `Look.luau`; `LookService` then swaps in real R15 rigs automatically. Players' own avatars stay their own; only their scales are nudged toward realistic proportions.
+
+v2 has not been play-tested in live Roblox Studio yet. Everything below passes on the command line.
 
 ## Project layout
 

@@ -8,6 +8,8 @@
 	  * The Season Track (free lane for all; optional premium cosmetic lane)
 	  * Jubilee Token collection book
 	  * Reach loyalty: weekly Reach standings and cosmetic banners for the top 3 Reaches
+	  * Sponsor letters: a daily package from the patrons you've won over (Logic/Sponsors)
+	  * Encore top-ups: a contender voted back in is paid for their better finish (Logic/Award)
 	It also builds the "state" snapshot each client renders.
 ]]
 local Players = game:GetService("Players")
@@ -26,9 +28,12 @@ local SeasonTrack = require(Shared.Logic.SeasonTrack)
 local ReachStandings = require(Shared.Logic.ReachStandings)
 local Twists = require(Shared.Logic.Twists)
 local TimeUtil = require(Shared.Logic.TimeUtil)
+local Sponsors = require(Shared.Logic.Sponsors)
+local Award = require(Shared.Logic.Award)
 
 local ProgressService = {}
 local ctx: any = nil
+local letterView: (data: any) -> any -- assigned below (sponsor letters)
 
 export type Runtime = { passes: { [string]: boolean }, dirty: boolean }
 ProgressService.runtime = {} :: { [Player]: Runtime }
@@ -133,8 +138,11 @@ function ProgressService.snapshot(player: Player): any?
 		settings = data.settings,
 		quip = data.quip,
 		passes = ProgressService.runtime[player] and ProgressService.runtime[player].passes or {},
-		shop = ctx.Purchase.availability(),
+		shop = ctx.Purchase.availability(player),
 		seenReaping = data.seenReaping,
+		letters = letterView(data),
+		favorBank = data.favorBank or 0,
+		titleName = Content.TITLES[data.equipped.title],
 	}
 end
 
@@ -236,7 +244,152 @@ export type MatchResult = {
 	survived: number,
 	partner: boolean,
 	bonusStars: number,
+	pactKept: boolean?,
 }
+
+-- Encore fix: a contender already paid at their knockout, voted back in by the Gallery and then
+-- finishing higher, gets the difference (never a second "match played").
+function ProgressService.topUp(player: Player, first: MatchResult, final: MatchResult): any
+	local data = ProgressService.dataOf(player)
+	if not data then
+		return {}
+	end
+	ensurePeriodic(data)
+	local t = Award.topUp(first :: any, final :: any, Config.XP, Config.STARS)
+	local mult = Leveling.playMult(data.play.count, Config.PLAY_STREAK_STEP, Config.PLAY_STREAK_MAX) * ProgressService.boostMult(player, data)
+	local xp = math.floor(t.xp * mult)
+	local levels = giveXp(player, data, xp)
+	local tiersUp = SeasonTrack.addStars(data.season, t.stars, Config.STARS_PER_TIER)
+	local st = data.stats
+	local prevBest = st.bestPlace
+	local place = math.min(first.place, final.place)
+	st.knocks += t.knocks
+	if t.win then
+		st.wins += 1
+	end
+	if t.top10 then
+		st.top10 += 1
+	end
+	if t.top5 then
+		st.top5 += 1
+	end
+	if t.encore then
+		st.encores += 1
+	end
+	if st.bestPlace == 0 or place < st.bestPlace then
+		st.bestPlace = place
+	end
+	local done = {}
+	local function add(stat: string, on: boolean)
+		if on then
+			for _, d in ipairs(Challenges.bump(data.daily, stat, 1)) do
+				table.insert(done, d)
+			end
+			for _, d in ipairs(Challenges.bump(data.weekly, stat, 1)) do
+				table.insert(done, d)
+			end
+		end
+	end
+	add("top10", t.top10)
+	add("top5", t.top5)
+	add("wins", t.win)
+	add("encore", t.encore)
+	finishChallenges(player, data, done)
+	if data.reach ~= "" then
+		local extra = ReachStandings.pointsFor(place, final.knocks) - ReachStandings.pointsFor(first.place, first.knocks)
+		if extra > 0 then
+			ProgressService.addReachPoints(data.reach, extra)
+		end
+	end
+	ProgressService.markDirty(player)
+	task.defer(ProgressService.sendState, player)
+	return { xp = xp, levels = levels, level = data.level, stars = t.stars, tiersUp = tiersUp, prevBest = prevBest, topUp = true }
+end
+
+function ProgressService.grant(player: Player, id: string, why: string)
+	local data = ProgressService.dataOf(player)
+	if data and not data.owned[id] then
+		data.owned[id] = true
+		ctx.toast(player, why, "good")
+		ProgressService.markDirty(player)
+		task.defer(ProgressService.sendState, player)
+	end
+end
+
+-- ===== Sponsor letters =====
+local function letterStats(data: any): { [string]: number }
+	return data.stats
+end
+
+letterView = function(data: any): any
+	local signed = Sponsors.earned(Content.PATRONS :: any, letterStats(data))
+	local per = { renown = 0, favor = 0 }
+	local from = {}
+	for _, p in ipairs(signed) do
+		per.renown += p.renown
+		per.favor += p.favor
+		table.insert(from, p.name)
+	end
+	local nxt = Sponsors.nextPatron(Content.PATRONS :: any, letterStats(data))
+	local every = Config.Sponsors.cosmeticEvery
+	local left = 0
+	for _, id in ipairs(Content.LETTER_COSMETICS) do
+		if not data.owned[id] then
+			left += 1
+		end
+	end
+	return {
+		waiting = data.letters.waiting,
+		from = from,
+		perLetter = per,
+		next = nxt and { name = nxt.name, stat = nxt.stat, need = nxt.need, have = data.stats[nxt.stat] or 0 } or nil,
+		cosmeticIn = left > 0 and (every - data.letters.claimed % every) or nil,
+	}
+end
+
+local function deliverLetters(player: Player, data: any)
+	local n = Sponsors.accrue(data.letters, TimeUtil.day(os.time()), Config.Sponsors.maxStack)
+	if n > 0 then
+		ProgressService.markDirty(player)
+		ctx.toast(player, string.format("✉️ %d sponsor letter%s arrived! Open Letters.", data.letters.waiting, data.letters.waiting == 1 and "" or "s"), "good")
+	end
+end
+
+local function claimLetters(player: Player): (boolean, string?)
+	local data = ProgressService.dataOf(player)
+	if not data then
+		return false, nil
+	end
+	if data.letters.waiting <= 0 then
+		return false, "No letters waiting. The next one arrives tomorrow."
+	end
+	local signed = Sponsors.earned(Content.PATRONS :: any, letterStats(data))
+	local pkg = Sponsors.claim(data.letters, signed, Content.LETTER_COSMETICS, Config.Sponsors.cosmeticEvery, data.owned)
+	giveXp(player, data, pkg.renown)
+	data.favorBank = math.min(Config.Sponsors.favorCap, (data.favorBank or 0) + pkg.favor)
+	local extra = ""
+	for _, id in ipairs(pkg.cosmetics) do
+		data.owned[id] = true
+		local nm = Content.TITLES[id] or (Content.FADES[id] and Content.FADES[id].name) or id
+		extra ..= " + " .. nm
+	end
+	ctx.push(player, "letters", { letters = pkg.letters, renown = pkg.renown, favor = pkg.favor, cosmetics = pkg.cosmetics, from = pkg.from })
+	ProgressService.markDirty(player)
+	ProgressService.sendState(player)
+	return true, string.format("Opened %d letter%s: +%d %s, +%d %s banked%s", pkg.letters, pkg.letters == 1 and "" or "s", pkg.renown, Names.XP, pkg.favor, Names.FAVOR, extra)
+end
+
+-- Gallery asks for the banked head start when a player sits down.
+function ProgressService.takeFavorBank(player: Player): number
+	local data = ProgressService.dataOf(player)
+	if not data or not data.favorBank or data.favorBank <= 0 then
+		return 0
+	end
+	local n = data.favorBank
+	data.favorBank = 0
+	ProgressService.markDirty(player)
+	return n
+end
 
 -- Called once per contender when their match ends (knocked out or at the podium).
 function ProgressService.award(player: Player, r: MatchResult): any
@@ -248,27 +401,12 @@ function ProgressService.award(player: Player, r: MatchResult): any
 	local prevBest = data.stats.bestPlace
 	local playCount = Leveling.playStreak(data.play, os.time(), Config.PLAY_STREAK_WINDOW)
 	local playMult = Leveling.playMult(playCount, Config.PLAY_STREAK_STEP, Config.PLAY_STREAK_MAX)
-	local X = Config.XP
-	local base = X.match + (r.size + 1 - r.place) * X.perPlaceAbove + r.knocks * X.knock + r.crates * X.crate
-	if r.place == 1 then
-		base += X.win
-	end
-	if r.place <= 10 then
-		base += X.top10
-	end
-	if r.encore then
-		base += X.encore
-	end
+	local base = Award.baseXp(r :: any, Config.XP)
 	local mult = playMult * ProgressService.boostMult(player, data)
 	local xp = math.floor(base * mult)
 	local levels = giveXp(player, data, xp)
 	-- Season stars
-	local stars = Config.STARS.match + r.bonusStars
-	if r.place == 1 then
-		stars += Config.STARS.win
-	elseif r.place <= 10 then
-		stars += Config.STARS.top10
-	end
+	local stars = Award.stars(r.place, Config.STARS, r.bonusStars)
 	local tiersUp = SeasonTrack.addStars(data.season, stars, Config.STARS_PER_TIER)
 	-- Daily streak counts on the first finished match of the day
 	local streakMsg: string? = nil
@@ -287,6 +425,9 @@ function ProgressService.award(player: Player, r: MatchResult): any
 	local st = data.stats
 	st.matches += 1
 	st.knocks += r.knocks
+	if r.encore then
+		st.encores += 1
+	end
 	if r.place == 1 then
 		st.wins += 1
 	end
@@ -507,6 +648,7 @@ local function onLoaded(player: Player, profile: any, isNew: boolean)
 	local data = profile.data
 	ensurePeriodic(data)
 	ProgressService.runtime[player] = { passes = ctx.Purchase.loadPasses(player), dirty = false }
+	deliverLetters(player, data)
 	ProgressService.sendState(player)
 	if isNew then
 		ctx.toast(player, "Welcome to " .. Names.CAPITAL:gsub("^the ", "the ") .. ". Pick your home " .. Names.REGION .. " on the board!", "good")
@@ -529,6 +671,7 @@ function ProgressService.init(c: any)
 	ctx.handle("quip", setQuip)
 	ctx.handle("equip", equip)
 	ctx.handle("seenReaping", seenReaping)
+	ctx.handle("claimLetters", claimLetters)
 	ctx.handle("refresh", function(player: Player): (boolean, string?)
 		ProgressService.sendState(player)
 		return true, nil
@@ -551,6 +694,12 @@ function ProgressService.start()
 	task.spawn(function()
 		while true do
 			refreshReachTable()
+			for _, p in ipairs(Players:GetPlayers()) do
+				local d = ProgressService.dataOf(p)
+				if d then
+					deliverLetters(p, d)
+				end
+			end
 			task.wait(60)
 		end
 	end)

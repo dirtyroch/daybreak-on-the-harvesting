@@ -28,6 +28,17 @@ local RateLimiter = require("../src/shared/Logic/RateLimiter")
 local ReceiptLedger = require("../src/shared/Logic/ReceiptLedger")
 local SessionLock = require("../src/shared/Logic/SessionLock")
 local Reconcile = require("../src/shared/Logic/Reconcile")
+local Pacts = require("../src/shared/Logic/Pacts")
+local Sponsors = require("../src/shared/Logic/Sponsors")
+local Policy = require("../src/shared/Logic/Policy")
+local Training = require("../src/shared/Logic/Training")
+local Stamina = require("../src/shared/Logic/Stamina")
+local Award = require("../src/shared/Logic/Award")
+local Meters = require("../src/shared/Logic/Meters")
+local Throw = require("../src/shared/Logic/Throw")
+local Look = require("../src/shared/Look")
+local MapBuilder = require("../src/shared/MapBuilder")
+local roblox = require("@lune/roblox")
 
 local passed, failed = 0, 0
 local current = ""
@@ -538,6 +549,256 @@ test("content tables are sane", function()
 	for name, def in pairs(SfxIds) do
 		truthy(type(def.id) == "number" and def.id > 0, name)
 	end
+end)
+
+-- ===== v2: pacts =====
+local PR = Config.Pacts
+test("pacts form by offer + accept and block friendly hits", function()
+	local s = Pacts.new()
+	truthy(Pacts.offer(s, PR, "a", "b", 40, 0))
+	local p = Pacts.accept(s, PR, "b", 40, 1)
+	truthy(p and #p.members == 2)
+	truthy(not Pacts.canHurt(s, "a", "b"))
+	truthy(Pacts.canHurt(s, "a", "c"))
+	eq(#Pacts.allies(s, "a"), 1)
+end)
+test("pact offers expire and pacts cap at 4", function()
+	local s = Pacts.new()
+	Pacts.offer(s, PR, "a", "b", 40, 0)
+	eq(Pacts.accept(s, PR, "b", 40, PR.offerSeconds + 1), nil)
+	for i, who in ipairs({ "b", "c", "d" }) do
+		Pacts.offer(s, PR, "a", who, 40, i * 20)
+		truthy(Pacts.accept(s, PR, who, 40, i * 20 + 1), "join " .. who)
+	end
+	local ok, why = Pacts.offer(s, PR, "a", "e", 40, 100)
+	truthy(not ok and why and why:find("4"))
+	local ok2 = Pacts.offer(s, PR, "x", "y", PR.endAt, 100)
+	truthy(not ok2, "no pacts at the final four")
+end)
+test("pact snap: visible wind-up, then betrayal strike + guard", function()
+	local s = Pacts.new()
+	Pacts.offer(s, PR, "a", "b", 40, 0)
+	Pacts.accept(s, PR, "b", 40, 0)
+	truthy(Pacts.snap(s, PR, "a", 10))
+	truthy(not Pacts.canHurt(s, "a", "b"), "still protected during the wind-up")
+	eq(#Pacts.tick(s, PR, 10 + PR.snapSeconds - 0.1), 0)
+	local ev = Pacts.tick(s, PR, 10 + PR.snapSeconds)
+	eq(#ev, 1)
+	eq(ev[1].who, "a")
+	eq(ev[1].with[1], "b")
+	truthy(Pacts.canHurt(s, "a", "b"))
+	local m, strike = Pacts.hitMult(s, PR, "a", "b", 14)
+	truthy(strike)
+	near(m, PR.betrayBonus)
+	local m2, strike2 = Pacts.hitMult(s, PR, "a", "b", 14.5)
+	truthy(not strike2, "only the first hit is the strike")
+	near(m2, PR.guardMult, 1e-6, "the betrayed are guarded briefly")
+	local m3 = Pacts.hitMult(s, PR, "c", "b", 30)
+	near(m3, 1)
+	local ok = Pacts.offer(s, PR, "a", "c", 40, 15)
+	truthy(not ok, "snapper waits before a new pact")
+end)
+test("pacts end at the final four and on knockouts", function()
+	local s = Pacts.new()
+	Pacts.offer(s, PR, "a", "b", 40, 0)
+	Pacts.accept(s, PR, "b", 40, 0)
+	Pacts.remove(s, "b")
+	truthy(Pacts.pactOf(s, "a") == nil, "a two-pact dissolves when one leaves")
+	Pacts.offer(s, PR, "a", "c", 40, 1)
+	Pacts.accept(s, PR, "c", 40, 1)
+	eq(#Pacts.endAll(s), 1)
+	truthy(Pacts.canHurt(s, "a", "c"))
+	truthy(not Pacts.offer(s, PR, "a", "c", 40, 2))
+end)
+
+-- ===== v2: sponsor letters =====
+local stats0 = { matches = 0, top10 = 0, knocks = 0, top5 = 0, wins = 0, encores = 0 }
+test("sponsor letters: daily, stack to 3, never lost", function()
+	local l = { lastDay = -1, waiting = 0, claimed = 0 }
+	eq(Sponsors.accrue(l, 100, 3), 1)
+	eq(Sponsors.accrue(l, 100, 3), 0)
+	eq(Sponsors.accrue(l, 110, 3), 2)
+	eq(l.waiting, 3)
+	local signed = Sponsors.earned(Content.PATRONS, stats0)
+	eq(#signed, 1, "home always writes")
+	local pkg = Sponsors.claim(l, signed, Content.LETTER_COSMETICS, 5, {})
+	eq(pkg.letters, 3)
+	eq(pkg.renown, 3 * Content.PATRONS[1].renown)
+	eq(l.waiting, 0)
+	eq(#pkg.cosmetics, 0)
+end)
+test("sponsor letters: more patrons, cosmetic every 5th, in order", function()
+	local st = table.clone(stats0)
+	st.top10 = 1
+	st.wins = 1
+	local signed = Sponsors.earned(Content.PATRONS, st)
+	eq(#signed, 3)
+	local l = { lastDay = 0, waiting = 1, claimed = 4 }
+	local pkg = Sponsors.claim(l, signed, Content.LETTER_COSMETICS, 5, { fade_dawn = true })
+	eq(pkg.cosmetics[1], Content.LETTER_COSMETICS[2], "owned ones are skipped")
+	eq(Sponsors.nextPatron(Content.PATRONS, st).id, "bakers")
+	for _, id in ipairs(Content.LETTER_COSMETICS) do
+		truthy(Content.FADES[id] or Content.TITLES[id], id)
+	end
+end)
+
+-- ===== v2: PolicyService =====
+test("policy fails closed and gates random/tradable items", function()
+	local u = Policy.unknown()
+	truthy(not Policy.shopVisible(u))
+	truthy(not Policy.canSell(u, {}))
+	local p = Policy.fromRaw({ ArePaidRandomItemsRestricted = true, IsPaidItemTradingAllowed = false, AreAdsAllowed = false })
+	truthy(Policy.shopVisible(p))
+	truthy(Policy.canSell(p, {}))
+	truthy(not Policy.canSell(p, { random = true }))
+	truthy(not Policy.canSell(p, { tradable = true }))
+	local q = Policy.fromRaw({})
+	truthy(q.paidRandomRestricted, "missing keys = restricted")
+	truthy(not Policy.fromRaw(nil).loaded)
+end)
+
+-- ===== v2: training =====
+test("training targets are seeded and scores run 1 to 10", function()
+	local t1 = Training.targets(42, 5, 6)
+	local t2 = Training.targets(42, 5, 6)
+	eq(#t1, 5)
+	eq(t1[3].x, t2[3].x)
+	for _, t in ipairs(t1) do
+		truthy(t.x >= 0.15 and t.x <= 0.85 and t.y >= 0.25 and t.y <= 0.75)
+		truthy(t.at + t.life <= 6 + 0.5)
+	end
+	eq(Training.score(t1, {}, 10), 1)
+	local clicks = {}
+	for _, t in ipairs(t1) do
+		table.insert(clicks, { i = t.i, t = t.at + 0.3 })
+	end
+	eq(Training.score(t1, clicks, 10), 10)
+	table.insert(clicks, { i = 1, t = t1[1].at + 0.4 })
+	eq(select(2, Training.score(t1, clicks, 10)), 5, "double clicks don't count")
+	eq(Training.score(t1, { { i = 2, t = 99 } }, 10), 1, "late clicks don't count")
+	local b = Training.botScore(7, "b12")
+	truthy(b >= 3 and b <= 8)
+	eq(Training.giftMult(3, 4, 0.8), 0.8)
+	eq(Training.giftMult(9, 4, 0.8), 1)
+end)
+
+-- ===== v2: server stamina =====
+local SR = { max = Config.STAMINA_MAX, drain = Config.STAMINA_DRAIN, regen = Config.STAMINA_REGEN, resume = Config.STAMINA_RESUME }
+test("stamina drains while sprinting, locks out when empty, refills", function()
+	local s = Stamina.new(SR)
+	s.wants = true
+	local n = 0
+	while not s.tired and n < 200 do
+		Stamina.step(s, SR, 0.1, true, 1)
+		n += 1
+	end
+	eq(s.value, 0)
+	truthy(n >= 40 and n <= 50, "about 4.5 s of sprint")
+	truthy(s.tired and not s.sprinting)
+	Stamina.step(s, SR, 1, true, 1)
+	truthy(not s.sprinting, "can't sprint while tired")
+	Stamina.step(s, SR, 1, true, 1)
+	truthy(s.value >= SR.resume)
+	Stamina.step(s, SR, 0.1, true, 1)
+	truthy(s.sprinting, "sprint again once rested")
+	truthy(Stamina.tooFast(60, 1, Config.SPRINT_SPEED, 1.35, 6))
+	truthy(not Stamina.tooFast(30, 1, Config.SPRINT_SPEED, 1.35, 6))
+end)
+
+-- ===== v2: encore award fix =====
+test("encore top-up pays the better finish once", function()
+	local first = { place = 30, size = 48, knocks = 1, crates = 2, encore = false }
+	local final = { place = 1, size = 48, knocks = 3, crates = 2, encore = true }
+	local t = Award.topUp(first, final, Config.XP, Config.STARS)
+	eq(t.xp, Award.baseXp({ place = 1, size = 48, knocks = 3, crates = 2, encore = true }, Config.XP) - Award.baseXp(first, Config.XP))
+	truthy(t.win and t.top10 and t.top5 and t.encore)
+	eq(t.knocks, 2)
+	eq(t.stars, Config.STARS.win)
+	local none = Award.topUp(final, final, Config.XP, Config.STARS)
+	eq(none.xp, 0)
+	truthy(not none.win)
+end)
+
+-- ===== v2: food/water + spear throw =====
+local MR = Config.Meters
+test("meters drain, refill, and only slow stamina", function()
+	local m = Meters.new(MR)
+	Meters.step(m, MR, 300, 1)
+	eq(m.water, 0)
+	near(Meters.regenMult(m, MR), MR.lowRegen * MR.lowRegen)
+	Meters.eat(m, MR, Config.Items.trailmix.food, Config.Items.canteen.water)
+	near(Meters.regenMult(m, MR), 1)
+	truthy(m.food <= MR.max and m.water <= MR.max)
+end)
+test("thrown spears bounce off the Veil once", function()
+	local legs = Throw.legs({ x = 0, z = 0 }, { x = 1, z = 0 }, 150, 100, 1)
+	eq(#legs, 2)
+	near(legs[1].to.x, 100, 1e-6)
+	truthy(legs[2].bounced and legs[2].to.x < 100)
+	near(legs[2].to.x, 50, 1)
+	local short = Throw.legs({ x = 0, z = 0 }, { x = 0, z = 1 }, 50, 100, 1)
+	eq(#short, 1)
+	near(Throw.segDist({ x = 0, z = 0 }, { x = 10, z = 0 }, { x = 5, z = 3 }), 3)
+end)
+test("v2 config is sane", function()
+	truthy(Config.Pacts.endAt == Config.ALLIES_UNTIL)
+	truthy(Config.Pacts.maxSize == 4 and Config.Pacts.snapSeconds == 3)
+	truthy(Content.TITLES[Config.VeilBreaker.title])
+	eq(#Content.QUESTIONS >= 3, true)
+	truthy(Config.Weapons.spearThrow.range > Config.Weapons.spear.range)
+end)
+
+test("realism: NPCs are human-proportioned, not chibi", function()
+	local env = { Instance = roblox.Instance, Vector3 = roblox.Vector3, CFrame = roblox.CFrame, Color3 = roblox.Color3, Enum = roblox.Enum, UDim2 = roblox.UDim2, NumberSequence = roblox.NumberSequence, NumberRange = roblox.NumberRange, ColorSequence = roblox.ColorSequence, Vector2 = roblox.Vector2 }
+	MapBuilder.setEnv(env)
+	local f = roblox.Instance.new("Folder")
+	for _, build in { function()
+		return MapBuilder.rusty(env, f, roblox.CFrame.new(), "Rusty")
+	end, function()
+		return MapBuilder.monty(f, roblox.CFrame.new(), "Monty")
+	end, function()
+		return MapBuilder.herald(f, roblox.CFrame.new(), "Herald")
+	end } do
+		local m, head = build()
+		local lo, hi = math.huge, -math.huge
+		for _, d in m:GetDescendants() do
+			if d:IsA("BasePart") then
+				local y = d.CFrame.Position.Y
+				truthy(y == y, "no NaN parts")
+				lo = math.min(lo, y - d.Size.Y / 2)
+				hi = math.max(hi, y + d.Size.Y / 2)
+			end
+		end
+		local height = hi - lo
+		truthy(height > 5.5 and height < 6.8, m.Name .. " height " .. height)
+		-- realistic: head is about 1/7 to 1/8 of body height (chibi v1 was ~1/2.5)
+		local ratio = height / head.Size.Y
+		truthy(ratio > 6.5 and ratio < 8.5, m.Name .. " heads tall " .. ratio)
+		truthy(m:GetAttribute("Realistic") == true and m:GetAttribute("LookId") ~= nil)
+		truthy(Look.NPCS[m:GetAttribute("LookId")] ~= nil, "asset spec for " .. m.Name)
+	end
+end)
+test("realism: avatar scale clamps and limb mapping", function()
+	local _, w, hd, bt, pr, changed = Look.clampScales(1, 0.7, 1.2, 0, 1)
+	truthy(changed)
+	eq(w, Look.playerScales.widthMin)
+	eq(hd, Look.playerScales.headMax)
+	eq(bt, Look.playerScales.bodyTypeMin)
+	eq(pr, Look.playerScales.proportionMax)
+	local _, _, _, _, _, same = Look.clampScales(1, 1, 1, 1, 0)
+	eq(same, false)
+	eq(Look.limbFor("LeftUpperArmJoint", -1, 4), "LeftUpperArm")
+	eq(Look.limbFor("EyeWhite", 0.1, 5.5), "Head")
+	eq(Look.limbFor("CoatPanel", 0.5, 4.0), "UpperTorso")
+	eq(Look.limbFor("Sole", -0.4, 0.05), "LeftFoot")
+	eq(Look.limbFor("BootShaft", 0.4, 0.7), "RightLowerLeg")
+	eq(Look.hasBody(Look.NPCS.Rusty.body), false) -- placeholders until Mike adds assets
+end)
+test("realism: meadow grass is toned down", function()
+	local P = MapBuilder.PALETTE
+	local c = roblox.Color3.fromHex(P.meadow)
+	local mx, mn = math.max(c.R, c.G, c.B), math.min(c.R, c.G, c.B)
+	truthy((mx - mn) / mx < 0.5, "meadow saturation") -- v1 #3FBF5A was ~0.67
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

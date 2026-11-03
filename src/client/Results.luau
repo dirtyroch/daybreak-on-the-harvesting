@@ -108,8 +108,8 @@ function Results.mount(parent: Frame)
 	Net.on("eliminated", function(d)
 		Sfx.play("bell", 0.85)
 		Hud.mode = "gallery"
-		local how = d.by and string.format("Tapped by %s (%s) with %s%s. They had %d Pep left.", d.by, d.byReach or "?", d.weapon or "a shove", d.dist and string.format(" from %d studs", math.floor(d.dist)) or "", math.floor(d.byPep or 0)) or ("Knocked out by " .. tostring(d.cause))
-		Fx.announce("How you got tapped", T.red, 2.6)
+		local how = d.betrayed and d.by and string.format("Betrayed by %s (%s). Your old pact-mate struck first.", d.by, d.byReach or "?") or d.by and string.format("Tapped by %s (%s) with %s%s. They had %d Pep left.", d.by, d.byReach or "?", d.weapon or "a shove", d.dist and string.format(" from %d studs", math.floor(d.dist)) or "", math.floor(d.byPep or 0)) or ("Knocked out by " .. tostring(d.cause))
+		Fx.announce(d.betrayed and "Pact Snap!" or "How you got tapped", T.red, 2.6)
 		Fx.toast(how, "info")
 		killcam(d)
 		task.delay(1.6, function()
@@ -123,7 +123,7 @@ function Results.mount(parent: Frame)
 			Fx.announce("🌅 " .. Names.CHAMPION .. "!", T.gold, 3.5)
 			Fx.toast("“" .. Content.RUSTY.win .. "”", "good")
 		end
-		showCard(d.place, d.headline, d.lines, d.result, nil)
+		showCard(d.place, d.headline, d.lines, d.result, d.result and d.result.topUp and "Encore top-up: paid for your best finish." or nil)
 	end)
 	Net.on("podium", function(d)
 		Hud.mode = "lobby"
@@ -139,6 +139,17 @@ function Results.mount(parent: Frame)
 		Fx.pop(string.format("Knocked out %s! %d left", d.name, d.left), T.gold, 30)
 	end)
 	Net.on("feed", function(d)
+		if d.kind == "pact" then
+			Fx.toast(string.format("🤝 Pact formed: %s%s", d.victim, d.by and (" + " .. d.by) or ""), "info")
+			return
+		elseif d.kind == "pactSnap" then
+			Sfx.play("hiss", 1.2, 0.05)
+			Fx.toast(string.format("💔 %s snapped their pact with %s!", d.by, d.victim), "bad")
+			return
+		elseif d.kind == "betrayal" then
+			Fx.announce(string.format("💔 %s strikes %s!", d.by, d.victim), T.red, 2)
+			return
+		end
 		Fx.bell()
 		if d.encore then
 			Fx.toast(string.format("✨ %s is back! %s", d.victim, d.cause), "good")

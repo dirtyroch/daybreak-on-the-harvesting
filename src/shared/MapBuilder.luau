@@ -181,159 +181,222 @@ local function sph(parent, name, size, cf, color, material, props)
 	return p
 end
 
--- A round, chibi-proportioned NPC: a big head, a soft pear-shaped body, mitten hands, and
--- shiny eyes with rosy cheeks. Feet at `cf`, facing -Z. Part names Head and Torso are what
--- the game looks up (prompts and name tags hang off them).
--- Options: skin, shirt, pants, shoes, hair, hat ("cowboy" | "cap" | "bun"), hatColor, apron,
--- apronText, glasses, mustache, beard, belly, brows, label, labelColor, scale.
+-- A realistically proportioned human (about 7.5 heads tall, R15 part names) built from parts,
+-- so the world reads as people, not toys, even before real meshes are swapped in.
+-- This is a stand-in: LookService replaces it at runtime with a real R15 rig (Dynamic Head with
+-- FACS expressions + layered clothing) for every NPC whose asset IDs are filled in Look.luau.
+-- Feet at `cf`, facing -Z. Returns model, Head, UpperTorso.
+-- Options: skin, shirt, pants, shoes, hair, hairStyle ("short" | "messy" | "bun" | "slick" |
+-- "long" | "bald"), coat, coatLong, vest, scarf, tie, beard, stubble, mustache, brows, glasses,
+-- hat ("cowboy" | "cap" | "flat"), hatColor, expr ("neutral" | "smile" | "wry" | "stern"),
+-- build ("lean" | "average" | "broad"), height (multiplier), label, labelColor, scale, age.
 function MapBuilder.npc(parent, name, cf, o)
 	o = o or {}
 	local m = model(parent, name)
-	local skin = o.skin or "#E0AC69"
-	local shirt = o.shirt or "#4A6FA5"
-	local pants = o.pants or "#3B3B3B"
-	local shoes = o.shoes or "#3A2A1E"
-	local dark = "#2A1E1A"
-	local s = o.scale or 1
+	local skin = o.skin or "#C99A74"
+	local shirt = o.shirt or "#5A5F66"
+	local pants = o.pants or "#3A3A3C"
+	local shoes = o.shoes or "#2E2621"
+	local s = (o.scale or 1) * (o.height or 1)
+	local w = o.build == "broad" and 1.12 or (o.build == "lean" and 0.92 or 1)
+	local skinMat = E.Enum.Material.SmoothPlastic
+	local cloth = E.Enum.Material.Fabric
 	local function at(x, y, z, rx, ry, rz)
 		return cf * E.CFrame.new(x * s, y * s, z * s) * E.CFrame.Angles(math.rad(rx or 0), math.rad(ry or 0), math.rad(rz or 0))
 	end
 	local function e(n, sx, sy, sz, c, x, y, z, rx, ry, rz, mat)
-		return sph(m, n, V(sx * s, sy * s, sz * s), at(x, y, z, rx, ry, rz), c, mat)
+		return sph(m, n, V(sx * s, sy * s, sz * s), at(x, y, z, rx, ry, rz), c, mat or cloth, { CanCollide = false })
 	end
-	-- legs and shoes
-	local legL = cyl(m, "LeftLeg", 1.3 * s, 0.8 * s, at(-0.45, 1.0, 0) * E.CFrame.Angles(0, 0, math.pi / 2), pants)
-	local legR = cyl(m, "RightLeg", 1.3 * s, 0.8 * s, at(0.45, 1.0, 0) * E.CFrame.Angles(0, 0, math.pi / 2), pants)
-	if o.sandals then
-		-- socks with sandals: white socks on a brown sole with a strap
+	-- a limb segment between two points (local coords), as a rounded cylinder
+	local function limb(n, a, b, d, c, mat)
+		local pa = cf * E.CFrame.new(a[1] * s, a[2] * s, a[3] * s)
+		local pb = cf * E.CFrame.new(b[1] * s, b[2] * s, b[3] * s)
+		local mid = (pa.Position + pb.Position) / 2
+		local len = (pb.Position - pa.Position).Magnitude
+		local x = (pb.Position - pa.Position).Unit
+		local ref = math.abs(x.Y) > 0.9 and V(0, 0, 1) or V(0, 1, 0)
+		local y = ref:Cross(x).Unit
+		local look = E.CFrame.fromMatrix(mid, x, y)
+		local p = cyl(m, n, len, d * s, look, c, mat or cloth, { CanCollide = false })
+		sph(m, n .. "Joint", V(d * s, d * s, d * s), E.CFrame.new(pb.Position), c, mat or cloth, { CanCollide = false })
+		return p
+	end
+	-- legs: thigh 1.55, shin 1.45, ankle at 0.22 (hips at 3.05)
+	local legL = limb("LeftUpperLeg", { -0.36 * w, 3.0, 0 }, { -0.38 * w, 1.6, -0.04 }, 0.62 * w, pants)
+	local legR = limb("RightUpperLeg", { 0.36 * w, 3.0, 0 }, { 0.38 * w, 1.6, -0.04 }, 0.62 * w, pants)
+	limb("LeftLowerLeg", { -0.38 * w, 1.6, -0.04 }, { -0.4 * w, 0.28, 0.02 }, 0.48, pants)
+	limb("RightLowerLeg", { 0.38 * w, 1.6, -0.04 }, { 0.4 * w, 0.28, 0.02 }, 0.48, pants)
+	for _, side in { -1, 1 } do
+		local fx = side * 0.4 * w
+		e(side < 0 and "LeftFoot" or "RightFoot", 0.46, 0.32, 1.02, shoes, fx, 0.17, -0.2, 0, 0, 0, E.Enum.Material.Leather)
+		e("Sole", 0.48, 0.1, 1.04, "#1E1A17", fx, 0.05, -0.2, 0, 0, 0, E.Enum.Material.Rubber)
+		if o.boots then
+			limb("BootShaft", { fx, 0.3, 0.02 }, { fx, 1.15, 0 }, 0.52, shoes, E.Enum.Material.Leather)
+		end
+	end
+	-- torso: pelvis, waist, ribcage (V-taper), shoulders
+	e("LowerTorso", 1.32 * w, 0.78, 0.82, pants, 0, 3.12, 0)
+	if o.belt ~= false then
+		e("Belt", 1.3 * w, 0.18, 0.84, "#2A221C", 0, 3.42, 0, 0, 0, 0, E.Enum.Material.Leather)
+	end
+	e("Waist", 1.18 * w, 0.95, 0.74, shirt, 0, 3.72, 0)
+	local torso = sph(m, "UpperTorso", V(1.62 * w * s, 1.35 * s, 0.86 * s), at(0, 4.3, 0), shirt, cloth)
+	e("Shoulders", 1.86 * w, 0.42, 0.78, shirt, 0, 4.72, 0.02)
+	if o.vest then
+		e("Vest", 1.66 * w, 1.3, 0.9, o.vest, 0, 4.2, -0.01)
+	end
+	if o.coat then
+		-- layered outer coat that hugs the body: a shell over the ribcage and shoulders, a skirt
+		-- over the hips (long for coatLong), an open front showing the shirt, flat lapels
+		local len = o.coatLong and 2.7 or 1.6
+		e("CoatTorso", 1.72 * w, 1.42, 0.94, o.coat, 0, 4.28, 0.01)
+		e("CoatShoulders", 1.98 * w, 0.46, 0.88, o.coat, 0, 4.72, 0.03)
+		e("CoatSkirt", 1.44 * w, len, 0.92, o.coat, 0, 3.95 - len / 2 + 0.35, 0.02)
+		e("CoatCollar", 0.9, 0.3, 0.8, o.coatTrim or o.coat, 0, 4.95, 0.06)
+		e("ShirtFront", 0.36, 1.25, 0.16, shirt, 0, 4.2, -0.43)
+		if not o.tie then
+			e("ShirtFrontLow", 0.3, 0.7, 0.16, shirt, 0, 3.55, -0.4)
+		end
 		for _, side in { -1, 1 } do
-			e("Sock", 0.85, 0.75, 1.2, "#F7F7F2", side * 0.47, 0.42, -0.12)
-			e("Sole", 1.0, 0.22, 1.45, "#7A4A2A", side * 0.47, 0.1, -0.15)
-			deco(m, "Strap", V(0.9 * s, 0.16 * s, 0.25 * s), at(side * 0.47, 0.55, -0.55), "#7A4A2A", E.Enum.Material.SmoothPlastic, false)
-		end
-	else
-		e("ShoeL", 0.95, 0.6, 1.35, shoes, -0.47, 0.3, -0.15)
-		e("ShoeR", 0.95, 0.6, 1.35, shoes, 0.47, 0.3, -0.15)
-	end
-	-- body: hips + a soft torso (rounder for a belly)
-	e("Hips", 2.0, 1.1, 1.6, pants, 0, 1.75, 0)
-	if o.buckle then
-		e("Belt", 2.05, 0.3, 1.65, "#3A2414", 0, 2.05, 0)
-		e("Buckle", 0.6, 0.42, 0.2, o.buckle, 0, 2.05, -0.82, 0, 0, 0, E.Enum.Material.Foil)
-	end
-	local bw, bd = o.belly and 2.6 or 2.2, o.belly and 2.3 or 1.75
-	local torso = sph(m, "Torso", V(bw * s, 2.5 * s, bd * s), at(0, 2.75, 0), shirt)
-	if o.apron then
-		-- a soft bib that hugs the front of the torso, with a flat name patch on it
-		e("ApronBib", bw * 0.78, 2.3, bd * 1.0, o.apron, 0, 2.6, -bd * 0.12, 0, 0, 0)
-		local ap = part(m, "Apron", V(1.25 * s, 0.6 * s, 0.05 * s), at(0, 2.55, -bd * 0.62 - 0.01), o.apron, E.Enum.Material.Fabric)
-		ap.CanCollide = false
-		if o.apronText then
-			surfaceText(ap, E.Enum.NormalId.Front, o.apronText, "#FFFFFF", nil)
+			e("Lapel", 0.2, 0.72, 0.07, o.coatTrim or o.coat, side * 0.23, 4.48, -0.455, 0, 0, side * -14)
 		end
 	end
-	-- arms: sleeves angled out a little, mitten hands
-	for _, side in { -1, 1 } do
-		local ax = side * (bw / 2 + 0.2)
-		e(side < 0 and "LeftArm" or "RightArm", 0.75, 1.7, 0.75, shirt, ax, 2.85, 0, 0, 0, side * 16)
-		e(side < 0 and "HandL" or "HandR", 0.7, 0.7, 0.7, skin, ax + side * 0.25, 1.95, -0.05)
+	if o.tie then
+		e("Tie", 0.2, 1.15, 0.12, o.tie, 0, 4.15, -0.43)
 	end
-	-- head: a big round face
-	local head = sph(m, "Head", V(2.5 * s, 2.4 * s, 2.35 * s), at(0, 4.85, 0), skin)
-	e("EarL", 0.38, 0.6, 0.35, skin, -1.24, 4.85, 0.05)
-	e("EarR", 0.38, 0.6, 0.35, skin, 1.24, 4.85, 0.05)
+	if o.scarf then
+		e("Scarf", 0.95, 0.38, 0.85, o.scarf, 0, 4.98, -0.02)
+		e("ScarfTail", 0.3, 1.0, 0.14, o.scarf, 0.22, 4.4, -0.44, 0, 0, 8)
+	end
+	-- arms (sleeves) hang naturally, hands at mid-thigh
+	local sleeve = o.coat or shirt
 	for _, side in { -1, 1 } do
-		e(side < 0 and "EyeL" or "EyeR", 0.34, 0.5, 0.2, dark, side * 0.45, 5.0, -1.08)
-		e(side < 0 and "ShineL" or "ShineR", 0.13, 0.13, 0.08, "#FFFFFF", side * 0.45 - 0.07, 5.12, -1.18, 0, 0, 0, E.Enum.Material.Neon)
-		e(side < 0 and "CheekL" or "CheekR", 0.5, 0.3, 0.12, "#F28B82", side * 0.78, 4.6, -0.98)
+		local sx = side * 0.98 * w
+		limb(side < 0 and "LeftUpperArm" or "RightUpperArm", { sx, 4.72, 0.02 }, { sx + side * 0.12, 3.55, 0.06 }, 0.38, sleeve)
+		limb(side < 0 and "LeftLowerArm" or "RightLowerArm", { sx + side * 0.12, 3.55, 0.06 }, { sx + side * 0.14, 2.62, -0.06 }, 0.32, sleeve)
+		e(side < 0 and "LeftHand" or "RightHand", 0.24, 0.5, 0.36, skin, sx + side * 0.15, 2.36, -0.07, 0, 0, 0, skinMat)
+	end
+	-- neck + head (head 0.82 tall: chin 5.08, crown 5.9)
+	limb("Neck", { 0, 4.86, 0.02 }, { 0, 5.18, 0.0 }, 0.36, skin, skinMat)
+	local head = sph(m, "Head", V(0.68 * s, 0.84 * s, 0.76 * s), at(0, 5.48, 0), skin, skinMat, { CanCollide = false })
+	e("Jaw", 0.56, 0.36, 0.6, skin, 0, 5.24, -0.06, 0, 0, 0, skinMat)
+	e("EarL", 0.08, 0.22, 0.14, skin, -0.34, 5.48, 0.02, 0, 0, 0, skinMat)
+	e("EarR", 0.08, 0.22, 0.14, skin, 0.34, 5.48, 0.02, 0, 0, 0, skinMat)
+	-- face: small, set-in eyes, a real nose and a closed mouth (expression via brow/mouth angle)
+	local expr = o.expr or "neutral"
+	local browTilt = expr == "stern" and 10 or (expr == "wry" and -6 or 0)
+	local mouthCurve = expr == "smile" and 5 or (expr == "wry" and 8 or (expr == "stern" and -3 or 0))
+	for _, side in { -1, 1 } do
+		e("EyeWhite", 0.13, 0.065, 0.05, "#E8E2D8", side * 0.13, 5.53, -0.355, 0, 0, 0, skinMat)
+		e("Iris", 0.06, 0.06, 0.03, o.eyes or "#3A2C22", side * 0.13, 5.53, -0.375, 0, 0, 0, skinMat)
+		e("Lid", 0.15, 0.04, 0.06, skin, side * 0.13, 5.565, -0.35, 0, 0, 0, skinMat)
 		if o.brows ~= false then
-			deco(m, "Brow", V(0.5 * s, 0.12 * s, 0.1 * s), at(side * 0.45, 5.42, -1.06, 0, 0, side * -8), o.hair or dark, E.Enum.Material.SmoothPlastic, false)
+			deco(m, "Brow", V(0.17 * s, 0.035 * s, 0.04 * s), at(side * 0.135, 5.63, -0.355, 0, 0, side * browTilt), o.browColor or o.hair or "#2A1E1A", cloth, false)
+		end
+		if o.age and o.age > 40 then
+			deco(m, "Crease", V(0.06 * s, 0.012 * s, 0.02 * s), at(side * 0.23, 5.52, -0.335, 0, 0, side * 20), "#8A6A55", skinMat, false)
 		end
 	end
-	e("Nose", 0.4, 0.34, 0.3, skin, 0, 4.68, -1.18)
-	if o.mustache then
-		e("Mustache", 1.25, 0.36, 0.4, o.mustache, 0, 4.42, -1.12)
-		e("Smile", 0.5, 0.16, 0.12, "#7A2E2E", 0, 4.18, -1.13)
-	else
-		e("Smile", 0.66, 0.2, 0.12, "#7A2E2E", 0, 4.32, -1.14)
+	e("Nose", 0.09, 0.2, 0.12, skin, 0, 5.44, -0.385, -12, 0, 0, skinMat)
+	e("NoseTip", 0.1, 0.07, 0.08, skin, 0, 5.36, -0.41, 0, 0, 0, skinMat)
+	deco(m, "Mouth", V(0.2 * s, 0.025 * s, 0.03 * s), at(0, 5.26, -0.355, 0, 0, expr == "wry" and 8 or 0), o.lips or "#8C5A4E", skinMat, false)
+	if mouthCurve ~= 0 then
+		for _, side in { -1, 1 } do
+			deco(m, "MouthCorner", V(0.05 * s, 0.022 * s, 0.03 * s), at(side * 0.115, 5.265 + (mouthCurve > 0 and 0.012 or -0.012) * (side == 1 and expr == "wry" and 2 or 1), -0.35, 0, 0, side * mouthCurve * 3), o.lips or "#8C5A4E", skinMat, false)
+		end
+	end
+	if o.stubble then
+		e("Stubble", 0.6, 0.34, 0.6, o.stubble, 0, 5.22, -0.075, 0, 0, 0, cloth).Transparency = 0.35
 	end
 	if o.beard then
-		e("Beard", 1.7, 0.9, 1.0, o.beard, 0, 3.9, -0.75)
+		e("Beard", 0.62, 0.42, 0.62, o.beard, 0, 5.18, -0.08, 0, 0, 0, cloth)
+	end
+	if o.mustache then
+		e("Mustache", 0.26, 0.06, 0.08, o.mustache, 0, 5.31, -0.37, 0, 0, 0, cloth)
 	end
 	if o.glasses then
 		for _, side in { -1, 1 } do
-			local lens = cyl(m, "Glasses", 0.08 * s, 0.75 * s, at(side * 0.45, 5.0, -1.2) * E.CFrame.Angles(0, math.pi / 2, 0), "#BFE3FF", E.Enum.Material.Glass, { Transparency = 0.55 })
-			lens.CanCollide = false
-			deco(m, "GlassesRim", V(0.8 * s, 0.08 * s, 0.06 * s), at(side * 0.45, 5.38, -1.2), "#3A2A1E", E.Enum.Material.SmoothPlastic, false)
+			local lens = cyl(m, "Glasses", 0.02 * s, 0.17 * s, at(side * 0.13, 5.53, -0.4) * E.CFrame.Angles(0, math.pi / 2, 0), "#BFD3DA", E.Enum.Material.Glass, { Transparency = 0.6, CanCollide = false })
+			lens.CanQuery = false
 		end
-		deco(m, "GlassesBridge", V(0.2 * s, 0.07 * s, 0.06 * s), at(0, 5.1, -1.22), "#3A2A1E", E.Enum.Material.SmoothPlastic, false)
+		deco(m, "GlassesBridge", V(0.08 * s, 0.02 * s, 0.02 * s), at(0, 5.55, -0.41), "#2A2420", E.Enum.Material.Metal, false)
 	end
-	-- hair and hats
-	if o.hair and o.hat ~= "cowboy" then
-		e("Hair", 2.6, 1.35, 2.5, o.hair, 0, 5.55, 0.12)
+	-- hair
+	local hair = o.hair or "#3A2A1E"
+	local style = o.hairStyle or "short"
+	if style ~= "bald" and o.hat ~= "cowboy" then
+		e("Hair", 0.74, 0.5, 0.8, hair, 0, 5.74, 0.03, -8, 0, 0, cloth)
+		if style == "messy" then
+			for k = 2, 5 do
+				local a = (k - 3.5) * 0.5
+				e("Tuft", 0.24, 0.1, 0.28, hair, math.sin(a) * 0.28, 5.92 + (k % 2) * 0.02, -0.12 + math.cos(a) * 0.1, -20 + (k % 3) * 8, k * 30, (k % 2) * 14, cloth)
+			end
+		elseif style == "slick" then
+			e("HairBack", 0.72, 0.5, 0.5, hair, 0, 5.6, 0.2, 0, 0, 0, E.Enum.Material.SmoothPlastic)
+		elseif style == "bun" then
+			e("HairBack", 0.72, 0.6, 0.5, hair, 0, 5.56, 0.18, 0, 0, 0, cloth)
+			e("Bun", 0.36, 0.32, 0.32, hair, 0, 5.82, 0.42, 0, 0, 0, cloth)
+		elseif style == "long" then
+			e("HairBack", 0.78, 1.15, 0.5, hair, 0, 5.15, 0.22, 0, 0, 0, cloth)
+		else
+			e("HairBack", 0.7, 0.4, 0.45, hair, 0, 5.56, 0.2, 0, 0, 0, cloth)
+		end
 	end
 	if o.hat == "cowboy" then
-		local hc = o.hatColor or "#3B2A1A"
-		cyl(m, "HatBrim", 0.18 * s, 4.3 * s, at(0, 5.75, 0) * E.CFrame.Angles(0, 0, math.pi / 2), hc)
-		e("HatBrimCurlL", 0.9, 0.5, 3.6, hc, -1.85, 5.95, 0)
-		e("HatBrimCurlR", 0.9, 0.5, 3.6, hc, 1.85, 5.95, 0)
-		e("HatCrown", 2.3, 1.6, 2.1, hc, 0, 6.4, 0)
-		cyl(m, "HatBand", 0.3 * s, 2.32 * s, at(0, 6.0, 0) * E.CFrame.Angles(0, 0, math.pi / 2), o.hatBand or "#8B5A2B")
-	elseif o.hat == "cap" then
-		local hc = o.hatColor or "#B22222"
-		e("Cap", 2.6, 1.5, 2.5, hc, 0, 5.6, 0.05)
-		e("Bill", 1.8, 0.2, 1.3, hc, 0, 5.4, -1.2)
-		e("CapButton", 0.3, 0.2, 0.3, "#FFFFFF", 0, 6.33, 0.05)
-	elseif o.hat == "bun" then
-		e("Hair", 2.6, 1.35, 2.5, o.hatColor or "#DDDDDD", 0, 5.55, 0.12)
-		e("Bun", 1.15, 1.05, 1.15, o.hatColor or "#DDDDDD", 0, 6.25, 0.45)
-		if o.pearls then
-			for k = -2, 2 do
-				dball(m, "Pearl", 0.22 * s, at(k * 0.32, 3.95 - math.abs(k) * 0.05, -0.82 + math.abs(k) * 0.08), "#FFF8E7", E.Enum.Material.SmoothPlastic, false)
-			end
-		end
+		local hc = o.hatColor or "#3B2E22"
+		cyl(m, "HatBrim", 0.05 * s, 1.5 * s, at(0, 5.8, 0.02) * E.CFrame.Angles(0, 0, math.pi / 2), hc, E.Enum.Material.Leather, { CanCollide = false })
+		e("HatCrown", 0.74, 0.4, 0.8, hc, 0, 5.98, 0.02, 0, 0, 0, E.Enum.Material.Leather)
+	elseif o.hat == "cap" or o.hat == "flat" then
+		local hc = o.hatColor or "#4A4038"
+		e("Cap", 0.76, 0.32, 0.82, hc, 0, 5.86, 0.02, 0, 0, 0, cloth)
+		e("Bill", 0.5, 0.05, 0.34, hc, 0, 5.8, -0.4, -8, 0, 0, cloth)
 	end
 	for _, c in ipairs(m:GetDescendants()) do
 		if c:IsA("BasePart") then
 			c.CanCollide = c == torso or c == legL or c == legR
+			c.CastShadow = c == torso or c == head or c.Name:find("Coat") ~= nil or c.Name:find("Leg") ~= nil
 		end
 	end
 	m.PrimaryPart = torso
+	m:SetAttribute("Realistic", true)
 	if o.label then
-		billboard(head, "NameTag", o.label, 2.8, 60, o.labelColor or "#FFE9A8", 200, 36)
+		billboard(head, "NameTag", o.label, 1.4, 60, o.labelColor or "#E9DFC6", 200, 32)
 	end
 	return m, head, torso
 end
 
 -- ===================== palette (from the plan's "Color & Look") =====================
 local PAL = {
-	marble = "#E9E4DA",
-	gold = "#D4A72C",
-	goldHi = "#F2CF63",
-	slate = "#4A505C",
-	soot = "#2B2D33",
-	haze = "#F7B27A",
-	meadow = "#3FBF5A",
-	meadowDeep = "#2F9447",
-	bloom = "#FF4FB8",
-	finch = "#FF8AD8",
-	lake = "#49C6E5",
-	wood = "#2E5A3A",
-	woodDark = "#244A2F",
-	veil = "#7FF3FF",
-	field = { "#5F8A45", "#6A9450", "#58803F" },
-	fieldDusk = "#4F7440",
-	ridge = { "#5A5C63", "#4A505C", "#666870" },
-	sand = "#C9B88E",
-	trunk = "#4A3426",
-	brick = { "#5A4A44", "#4E4A52", "#625750" },
-	window = "#FFC870",
-	rustyHair = "#B89A5E",
-	rustyRoots = "#7E6740",
-	rustyShirt = "#C9A13B",
-	rustyPlaid = "#2F7F86",
-	rustyPants = "#5C5A52",
-	thermos = "#3E8E5E",
+	-- Realism pass: a desaturated, filmic palette. Aged brass instead of bright gold, weathered
+	-- stone, olive grass and a muted rose for the meadow blooms.
+	marble = "#CFC8BC",
+	gold = "#9C8048",
+	goldHi = "#B89A5C",
+	slate = "#474B52",
+	soot = "#2A2B2F",
+	haze = "#D9A57E",
+	meadow = "#7A844C",
+	meadowDeep = "#646E3E",
+	bloom = "#A85A78",
+	finch = "#C98AA8",
+	lake = "#4A737A",
+	wood = "#2F4430",
+	woodDark = "#263828",
+	veil = "#9ADCE4",
+	field = { "#68704A", "#707850", "#5F6844" },
+	fieldDusk = "#555C3F",
+	ridge = { "#5A5B5E", "#4A4D52", "#636468" },
+	sand = "#A89C80",
+	trunk = "#3E3128",
+	brick = { "#54463F", "#4A464C", "#5A5049" },
+	window = "#E2B26C",
+	rustyHair = "#A68C5C",
+	rustyRoots = "#5E4C34",
+	rustyShirt = "#A68A44",
+	rustyPlaid = "#3E5E60",
+	rustyPants = "#4E4C46",
+	thermos = "#3E6A4E",
+	grass = { "#6E7748", "#7A8250", "#626B40", "#858A56" },
 }
 MapBuilder.PALETTE = PAL
 
@@ -389,10 +452,10 @@ end
 local function pine(parent, pos, s)
 	local m = model(parent, "Pine")
 	deco(m, "Trunk", V(1.6 * s, 10 * s, 1.6 * s), at(pos + V(0, 5 * s, 0)), PAL.trunk, E.Enum.Material.Wood, false)
-	local c = pick({ PAL.wood, PAL.woodDark, "#35663F" })
-	sph(m, "Needles1", V(11 * s, 9 * s, 11 * s), at(pos + V(0, 10 * s, 0)), c, E.Enum.Material.Grass, { CanCollide = false, CanQuery = false, CastShadow = true })
-	sph(m, "Needles2", V(8 * s, 8 * s, 8 * s), at(pos + V(0, 16 * s, 0)), c, E.Enum.Material.Grass, { CanCollide = false, CanQuery = false, CastShadow = true })
-	sph(m, "Needles3", V(4.5 * s, 6 * s, 4.5 * s), at(pos + V(0, 21 * s, 0)), c, E.Enum.Material.Grass, { CanCollide = false, CanQuery = false, CastShadow = false })
+	local c = pick({ PAL.wood, PAL.woodDark, "#344A36" })
+	sph(m, "Needles1", V(11 * s, 9 * s, 11 * s), at(pos + V(0, 10 * s, 0)), c, E.Enum.Material.LeafyGrass, { CanCollide = false, CanQuery = false, CastShadow = true })
+	sph(m, "Needles2", V(8 * s, 8 * s, 8 * s), at(pos + V(0, 16 * s, 0)), c, E.Enum.Material.LeafyGrass, { CanCollide = false, CanQuery = false, CastShadow = true })
+	sph(m, "Needles3", V(4.5 * s, 6 * s, 4.5 * s), at(pos + V(0, 21 * s, 0)), c, E.Enum.Material.LeafyGrass, { CanCollide = false, CanQuery = false, CastShadow = false })
 	part(m, "Hitbox", V(2 * s, 12 * s, 2 * s), at(pos + V(0, 6 * s, 0)), PAL.trunk, E.Enum.Material.Wood, { Transparency = 1, CastShadow = false })
 	return m
 end
@@ -400,24 +463,24 @@ end
 local function broadleaf(parent, pos, s)
 	local m = model(parent, "Tree")
 	deco(m, "Trunk", V(2 * s, 9 * s, 2 * s), at(pos + V(0, 4.5 * s, 0)), PAL.trunk, E.Enum.Material.Wood, false)
-	local c = pick({ "#4F7D3C", "#5E8A44", "#6E8F3A", "#8A8A3A" })
-	dball(m, "Canopy", 12 * s, at(pos + V(0, 11 * s, 0)), c, E.Enum.Material.Grass, true)
-	dball(m, "Canopy2", 8 * s, at(pos + V(4 * s, 9.5 * s, 2 * s)), c, E.Enum.Material.Grass, false)
+	local c = pick({ "#4E6038", "#58683E", "#646C40", "#6E6C44" })
+	dball(m, "Canopy", 12 * s, at(pos + V(0, 11 * s, 0)), c, E.Enum.Material.LeafyGrass, true)
+	dball(m, "Canopy2", 8 * s, at(pos + V(4 * s, 9.5 * s, 2 * s)), c, E.Enum.Material.LeafyGrass, false)
 	part(m, "Hitbox", V(2.2 * s, 9 * s, 2.2 * s), at(pos + V(0, 4.5 * s, 0)), PAL.trunk, E.Enum.Material.Wood, { Transparency = 1, CastShadow = false })
 	return m
 end
 
 local function rock(parent, pos, s, color)
-	local p = sph(parent, "Rock", V(rr(6, 10) * s, rr(4, 7) * s, rr(6, 10) * s), at(pos + V(0, 1.5 * s, 0)) * yaw(rr(0, 6.28)), color or pick(PAL.ridge), E.Enum.Material.Slate)
+	local p = sph(parent, "Rock", V(rr(6, 10) * s, rr(4, 7) * s, rr(6, 10) * s), at(pos + V(0, 1.5 * s, 0)) * yaw(rr(0, 6.28)), color or pick(PAL.ridge), E.Enum.Material.Rock)
 	return p
 end
 
 local function crate(parent, name, pos, loot, rot)
-	local c = part(parent, name, V(4, 3, 3), at(pos + V(0, 1.5, 0)) * yaw(rot or 0), loot == "hub" and "#8A6A3A" or "#6E5236", E.Enum.Material.Wood)
+	local c = part(parent, name, V(4, 3, 3), at(pos + V(0, 1.5, 0)) * yaw(rot or 0), loot == "hub" and "#6E5A40" or "#5A4834", E.Enum.Material.WoodPlanks)
 	c:SetAttribute("Loot", loot)
 	c:SetAttribute("Crate", true)
-	deco(c, "Band", V(4.1, 0.5, 3.1), c.CFrame, loot == "meadow" and PAL.bloom or PAL.gold, E.Enum.Material.Metal, false)
-	deco(c, "Band2", V(0.5, 3.1, 3.1), c.CFrame, loot == "meadow" and PAL.bloom or PAL.gold, E.Enum.Material.Metal, false)
+	deco(c, "Band", V(4.1, 0.5, 3.1), c.CFrame, loot == "meadow" and "#6E3E4E" or "#5A4A3A", E.Enum.Material.CorrodedMetal, false)
+	deco(c, "Band2", V(0.5, 3.1, 3.1), c.CFrame, loot == "meadow" and "#6E3E4E" or "#5A4A3A", E.Enum.Material.CorrodedMetal, false)
 	local band = c:FindFirstChild("Band")
 	if band then
 		band.Parent = parent
@@ -433,51 +496,113 @@ local function crate(parent, name, pos, loot, rot)
 end
 
 local function townsperson(parent, cf, colors)
-	-- a simple low-detail figure for the lobby crowd
-	local m = model(parent, "Townsperson")
-	local s = rr(0.9, 1.08)
-	local function a(x, y, z)
-		return cf * E.CFrame.new(x * s, y * s, z * s)
-	end
-	sph(m, "Legs", V(1.6 * s, 2.2 * s, 1.2 * s), a(0, 1.1, 0), colors[2], E.Enum.Material.Fabric, { CanCollide = false })
-	sph(m, "Body", V(2.2 * s, 2.6 * s, 1.6 * s), a(0, 3.0, 0), colors[1], E.Enum.Material.Fabric, { CanCollide = false })
-	sph(m, "Head", V(1.7 * s, 1.8 * s, 1.7 * s), a(0, 4.9, 0), colors[3], E.Enum.Material.SmoothPlastic, { CanCollide = false })
-	sph(m, "Hair", V(1.8 * s, 0.9 * s, 1.8 * s), a(0, 5.5, 0.1), colors[4], E.Enum.Material.SmoothPlastic, { CanCollide = false })
+	-- realistic, low-detail townsfolk for the lobby crowd (worn, muted work clothes)
+	local m = MapBuilder.npc(parent, "Townsperson", cf, {
+		shirt = colors[1],
+		pants = colors[2],
+		skin = colors[3],
+		hair = colors[4],
+		coat = rnd() < 0.4 and pick({ "#4A443C", "#3E4248", "#55483A" }) or nil,
+		hairStyle = pick({ "short", "short", "messy", "long", "bun", "bald" }),
+		hat = rnd() < 0.2 and "flat" or nil,
+		stubble = rnd() < 0.3 and colors[4] or nil,
+		expr = pick({ "neutral", "neutral", "stern", "wry" }),
+		build = pick({ "lean", "average", "broad" }),
+		height = rr(0.93, 1.06),
+		brows = true,
+	})
 	return m
 end
 
--- Rusty Dunmore: the scruffy, kind mentor. Built on the shared NPC body with his own details.
+-- Rusty Dunmore: the scruffy, kind mentor in his forties. Worn plaid overshirt over a faded
+-- mustard tee, work boots, two-tone hair grown out, a week of stubble, and his green thermos.
 function MapBuilder.rusty(env, parent, cf, label)
 	if env then
 		E = env
 	end
 	local m, head, torso = MapBuilder.npc(parent, "Rusty", cf, {
-		skin = "#D9A877",
+		skin = "#C49272",
 		shirt = PAL.rustyShirt,
 		pants = PAL.rustyPants,
-		shoes = "#3A2E26",
+		shoes = "#3A2C22",
+		boots = true,
+		coat = PAL.rustyPlaid,
+		coatTrim = "#2C4446",
 		hair = PAL.rustyHair,
-		beard = PAL.rustyRoots,
-		brows = true,
+		browColor = PAL.rustyRoots,
+		hairStyle = "messy",
+		stubble = PAL.rustyRoots,
+		mustache = PAL.rustyRoots,
+		expr = "wry",
+		age = 44,
+		build = "average",
+		height = 1.02,
 		label = label,
-		labelColor = "#F2CF63",
+		labelColor = "#E3C987",
 	})
+	local s = 1.02
 	local function a(x, y, z)
-		return cf * E.CFrame.new(x, y, z)
+		return cf * E.CFrame.new(x * s, y * s, z * s)
 	end
-	-- messy hair tufts with darker roots
-	for i = 1, 5 do
-		local ang = (i - 3) * 0.45
-		sph(m, "Tuft", V(1.1, 0.9, 1.0), a(math.sin(ang) * 1.1, 6.05 + (i % 2) * 0.2, 0.2 + math.cos(ang) * 0.3) * E.CFrame.Angles(0, 0, ang), i % 2 == 0 and PAL.rustyRoots or PAL.rustyHair, E.Enum.Material.SmoothPlastic, { CanCollide = false })
-	end
-	-- open plaid overshirt panels
-	for _, side in { -1, 1 } do
-		sph(m, "Plaid", V(0.9, 2.4, 1.85), a(side * 0.85, 2.75, -0.05), PAL.rustyPlaid, E.Enum.Material.Fabric, { CanCollide = false })
-	end
-	-- the green thermos in his right hand
-	local th = cyl(m, "Thermos", 1.3, 0.6, a(1.6, 2.1, -0.3) * E.CFrame.Angles(0, 0, math.pi / 2), PAL.thermos, E.Enum.Material.Metal, { CanCollide = false })
-	cyl(m, "ThermosCap", 0.3, 0.64, a(1.6, 2.85, -0.3) * E.CFrame.Angles(0, 0, math.pi / 2), "#2A2A2A", E.Enum.Material.Metal, { CanCollide = false })
+	-- darker roots under the grown-out hair (real plaid comes from the layered shirt in Studio)
+	sph(m, "Roots", V(0.66 * s, 0.22 * s, 0.7 * s), a(0, 5.74, 0.08), PAL.rustyRoots, E.Enum.Material.Fabric, { CanCollide = false })
+	-- the dented green thermos in his right hand
+	local th = cyl(m, "Thermos", 0.95, 0.34, a(1.14, 2.3, -0.3) * E.CFrame.Angles(0, 0, math.pi / 2), PAL.thermos, E.Enum.Material.CorrodedMetal, { CanCollide = false })
+	cyl(m, "ThermosCap", 0.18, 0.37, a(1.14, 2.82, -0.3) * E.CFrame.Angles(0, 0, math.pi / 2), "#2A2A2A", E.Enum.Material.Metal, { CanCollide = false })
+	m:SetAttribute("LookId", "Rusty")
 	return m, head, torso, th
+end
+
+-- Monty Gleam: the Capital's interview host. Silver-streaked slick hair, midnight suit, a
+-- practiced TV smile.
+function MapBuilder.monty(parent, cf, label)
+	local m, head = MapBuilder.npc(parent, "Monty", cf, {
+		skin = "#B98466",
+		shirt = "#D8D2C6",
+		pants = "#1F2430",
+		shoes = "#151515",
+		coat = "#232A3A",
+		coatTrim = "#1A1F2B",
+		tie = "#6B2430",
+		hair = "#4A4440",
+		hairStyle = "slick",
+		expr = "smile",
+		age = 52,
+		build = "lean",
+		height = 1.03,
+		label = label,
+		labelColor = "#E3C987",
+	})
+	deco(m, "PocketSquare", V(0.14, 0.08, 0.04), cf * E.CFrame.new(-0.42, 4.55, -0.47), "#C9A24A", E.Enum.Material.Fabric, false)
+	m:SetAttribute("LookId", "Monty")
+	return m, head
+end
+
+-- Herald Marigold Vane: the Capital escort. Tailored ochre long coat with a cream collar,
+-- copper hair in a tight bun, pearls, a bright smile that never quite reaches her eyes.
+function MapBuilder.herald(parent, cf, label)
+	local m, head = MapBuilder.npc(parent, "Herald", cf, {
+		skin = "#E2B99A",
+		shirt = "#E8DFCF",
+		pants = "#5A4632",
+		shoes = "#3A2A1E",
+		coat = "#9C7A3C",
+		coatLong = true,
+		coatTrim = "#E8DFCF",
+		hair = "#A2512A",
+		hairStyle = "bun",
+		lips = "#9A4A48",
+		expr = "smile",
+		build = "lean",
+		height = 0.97,
+		label = label,
+		labelColor = "#E3C987",
+	})
+	for k = -2, 2 do
+		dball(m, "Pearl", 0.07, cf * E.CFrame.new(k * 0.08, 4.86 - math.abs(k) * 0.02, -0.36 + math.abs(k) * 0.03), "#EFE8DA", E.Enum.Material.SmoothPlastic, false)
+	end
+	m:SetAttribute("LookId", "Herald")
+	return m, head
 end
 
 -- ===================== arena =====================
@@ -491,13 +616,13 @@ local function buildGround(root, cfg)
 			local z = -half + tile * (j + 0.5)
 			local b = MapBuilder.biomeAt(x, z, cfg)
 			local color = pick(PAL.field)
-			local mat = E.Enum.Material.Grass
+			local mat = E.Enum.Material.LeafyGrass
 			if b == "ridge" then
-				color, mat = "#5E5F58", E.Enum.Material.Ground
+				color, mat = "#5E5C55", E.Enum.Material.Ground
 			elseif b == "wood" then
-				color = "#3F6436"
+				color = "#4A5638"
 			elseif b == "ruins" then
-				color, mat = "#7A7562", E.Enum.Material.Ground
+				color, mat = "#6E685A", E.Enum.Material.Mud
 			end
 			part(g, "Tile", V(tile, 16, tile), at(V(x, -8, z)), color, mat)
 		end
@@ -515,7 +640,7 @@ local function buildGround(root, cfg)
 		local a = k / 28 * math.pi * 2 + rr(-0.05, 0.05)
 		local r = rr(1550, 1750)
 		local s = rr(260, 520)
-		local color = a > math.pi * 1.1 and a < math.pi * 1.9 and "#575960" or pick({ "#3E5E3A", "#4A6A3E", "#3A5236" })
+		local color = a > math.pi * 1.1 and a < math.pi * 1.9 and "#55565A" or pick({ "#465440", "#4E5A44", "#424C3C" })
 		sph(g, "Hill", V(s * 1.6, s * 0.7, s), at(V(math.cos(a) * r, -s * 0.12, math.sin(a) * r)) * yaw(-a), color, E.Enum.Material.Grass, { CanCollide = false, CastShadow = false })
 	end
 end
@@ -523,25 +648,25 @@ end
 local function buildHub(root, cfg, names)
 	local h = folder(root, "Sundial")
 	local R = cfg.Map.HUB_RADIUS
-	disc(h, "Apron", R * 2 + 40, 1, V(0, 0.5, 0), "#BFB8A8", E.Enum.Material.Pavement)
-	disc(h, "Base", R * 2, 2, V(0, 1.5, 0), PAL.marble, E.Enum.Material.Marble)
-	disc(h, "GoldRing", R * 2 - 6, 2.4, V(0, 1.7, 0), PAL.gold, E.Enum.Material.Foil)
-	disc(h, "Face", R * 2 - 10, 2.6, V(0, 1.8, 0), PAL.marble, E.Enum.Material.Marble)
-	disc(h, "Inlay", 30, 2.8, V(0, 1.9, 0), PAL.goldHi, E.Enum.Material.Foil)
+	disc(h, "Apron", R * 2 + 40, 1, V(0, 0.5, 0), "#9C968A", E.Enum.Material.Cobblestone)
+	disc(h, "Base", R * 2, 2, V(0, 1.5, 0), PAL.marble, E.Enum.Material.Limestone)
+	disc(h, "GoldRing", R * 2 - 6, 2.4, V(0, 1.7, 0), PAL.gold, E.Enum.Material.Metal)
+	disc(h, "Face", R * 2 - 10, 2.6, V(0, 1.8, 0), PAL.marble, E.Enum.Material.Limestone)
+	disc(h, "Inlay", 30, 2.8, V(0, 1.9, 0), PAL.goldHi, E.Enum.Material.Metal)
 	-- 12 hour marks
 	for k = 0, 11 do
 		local a = k / 12 * math.pi * 2
 		local r = R - 9
-		part(h, "HourMark", V(2, 0.6, 7), at(V(math.cos(a) * r, 3.2, math.sin(a) * r)) * yaw(-a + math.pi / 2), PAL.gold, E.Enum.Material.Foil, { CanCollide = false })
+		part(h, "HourMark", V(2, 0.6, 7), at(V(math.cos(a) * r, 3.2, math.sin(a) * r)) * yaw(-a + math.pi / 2), PAL.gold, E.Enum.Material.Metal, { CanCollide = false })
 	end
 	-- the gnomon: a tall golden blade casting the hub's shadow
-	local gnomon = part(h, "Gnomon", V(3, 46, 26), at(V(0, 20, 6)) * E.CFrame.Angles(math.rad(-28), 0, 0), PAL.gold, E.Enum.Material.Foil)
+	local gnomon = part(h, "Gnomon", V(3, 46, 26), at(V(0, 20, 6)) * E.CFrame.Angles(math.rad(-28), 0, 0), PAL.gold, E.Enum.Material.Metal)
 	local light = E.Instance.new("PointLight")
 	light.Color = E.Color3.fromHex("#FFD36B")
 	light.Brightness = 3
 	light.Range = 60
 	light.Parent = gnomon
-	part(h, "GnomonCap", V(4, 3, 4), at(V(0, 41, -4)), PAL.goldHi, E.Enum.Material.Neon, { CanCollide = false })
+	part(h, "GnomonCap", V(4, 3, 4), at(V(0, 41, -4)), PAL.goldHi, E.Enum.Material.Metal, { CanCollide = false })
 	billboard(gnomon, "Label", names.HUB:gsub("^the ", "The "), 30, 900, "#FFE9A8", 220, 40)
 	-- crate rings around the dial
 	local crates = folder(root, "HubCrates")
@@ -556,7 +681,7 @@ local function buildHub(root, cfg, names)
 	for i = 1, cfg.MATCH_SIZE do
 		local a = (i - 1) / cfg.MATCH_SIZE * math.pi * 2
 		local pos = V(math.cos(a) * cfg.Map.PLATE_RADIUS, 0, math.sin(a) * cfg.Map.PLATE_RADIUS)
-		local p = disc(plates, string.format("Plate%02d", i), 8, 1.2, pos + V(0, 0.6, 0), "#8E949E", E.Enum.Material.DiamondPlate)
+		local p = disc(plates, string.format("Plate%02d", i), 8, 1.2, pos + V(0, 0.6, 0), "#6E6A64", E.Enum.Material.DiamondPlate)
 		p:SetAttribute("Index", i)
 		disc(plates, string.format("Plate%02d_Ring", i), 9, 0.9, pos + V(0, 0.5, 0), PAL.veil, E.Enum.Material.Neon, { CanCollide = false, CanQuery = false })
 	end
@@ -565,18 +690,18 @@ end
 local function buildMeadow(root, cfg)
 	local m = folder(root, "GildedMeadow")
 	local M = cfg.Map.MEADOW
-	disc(m, "Meadow", M.r * 2, 0.4, V(M.x, 0.2, M.z), PAL.meadow, E.Enum.Material.Grass, { CanCollide = false })
-	disc(m, "MeadowInner", M.r * 1.3, 0.5, V(M.x, 0.25, M.z), "#4ACB63", E.Enum.Material.Grass, { CanCollide = false })
+	disc(m, "Meadow", M.r * 2, 0.4, V(M.x, 0.2, M.z), PAL.meadow, E.Enum.Material.LeafyGrass, { CanCollide = false })
+	disc(m, "MeadowInner", M.r * 1.3, 0.5, V(M.x, 0.25, M.z), "#808A4E", E.Enum.Material.LeafyGrass, { CanCollide = false })
 	local zone = disc(m, "MeadowZone", M.r * 2, 60, V(M.x, 30, M.z), PAL.bloom, E.Enum.Material.SmoothPlastic, { Transparency = 1, CanCollide = false, CanQuery = false, CanTouch = false })
 	zone:SetAttribute("Zone", "meadow")
 	local flowers = model(m, "Flowers")
-	for _ = 1, 360 do
+	for _ = 1, 420 do
 		local a, d = rr(0, math.pi * 2), math.sqrt(rnd()) * (M.r - 8)
 		local x, z = M.x + math.cos(a) * d, M.z + math.sin(a) * d
-		local h = rr(1.2, 2.6)
-		deco(flowers, "Stem", V(0.25, h, 0.25), at(V(x, h / 2, z)), "#2F8A3E", E.Enum.Material.Grass, false)
-		local c = rnd() < 0.55 and PAL.goldHi or (rnd() < 0.6 and PAL.bloom or "#FFFFFF")
-		dball(flowers, "Bloom", rr(0.9, 1.6), at(V(x, h + 0.3, z)), c, rnd() < 0.3 and E.Enum.Material.Neon or E.Enum.Material.SmoothPlastic, false)
+		local h = rr(1.4, 2.8)
+		deco(flowers, "Stem", V(0.12, h, 0.12), at(V(x, h / 2, z)) * E.CFrame.Angles(rr(-0.15, 0.15), 0, rr(-0.15, 0.15)), "#4E5A34", E.Enum.Material.LeafyGrass, false)
+		local c = rnd() < 0.5 and "#C2A050" or (rnd() < 0.6 and PAL.bloom or "#DCD5C4")
+		dball(flowers, "Bloom", rr(0.45, 0.85), at(V(x, h + 0.1, z)), c, E.Enum.Material.Fabric, false)
 	end
 	-- golden pollen emitters (off until a Meadow Bloom)
 	for k = 1, 7 do
@@ -590,8 +715,8 @@ local function buildMeadow(root, cfg)
 		pe.Lifetime = E.NumberRange.new(4, 7)
 		pe.Speed = E.NumberRange.new(1, 3)
 		pe.SpreadAngle = E.Vector2.new(180, 180)
-		pe.LightEmission = 0.8
-		pe.Color = E.ColorSequence.new(E.Color3.fromHex("#FFD36B"), E.Color3.fromHex("#FF4FB8"))
+		pe.LightEmission = 0.35
+		pe.Color = E.ColorSequence.new(E.Color3.fromHex("#E8C878"), E.Color3.fromHex("#C98AA8"))
 		pe.Size = E.NumberSequence.new(0.6)
 		pe.Parent = p
 	end
@@ -607,8 +732,8 @@ local function buildLake(root, cfg)
 	local l = folder(root, "MirrorLake")
 	local L = cfg.Map.LAKE
 	disc(l, "Shore", L.r * 2 + 40, 0.6, V(L.x, 0.3, L.z), PAL.sand, E.Enum.Material.Sand, { CanCollide = false })
-	disc(l, "Bed", L.r * 2, 0.7, V(L.x, 0.35, L.z), "#2D6F7E", E.Enum.Material.Slate, { CanCollide = false })
-	local w = disc(l, "Water", L.r * 2 - 4, 1.2, V(L.x, 0.6, L.z), PAL.lake, E.Enum.Material.Glass, { Transparency = 0.18, Reflectance = 0.35, CanCollide = false })
+	disc(l, "Bed", L.r * 2, 0.7, V(L.x, 0.35, L.z), "#33494C", E.Enum.Material.Mud, { CanCollide = false })
+	local w = disc(l, "Water", L.r * 2 - 4, 1.2, V(L.x, 0.6, L.z), PAL.lake, E.Enum.Material.Glass, { Transparency = 0.25, Reflectance = 0.3, CanCollide = false })
 	w:SetAttribute("Zone", "lake")
 	-- a small island with a reed bed and a token spot
 	disc(l, "Island", 46, 2.2, V(L.x + 40, 1.1, L.z - 30), PAL.sand, E.Enum.Material.Sand)
@@ -616,7 +741,7 @@ local function buildLake(root, cfg)
 	for _ = 1, 50 do
 		local a = rr(0, math.pi * 2)
 		local d = L.r + rr(-6, 14)
-		deco(l, "Reed", V(0.4, rr(3, 6), 0.4), at(V(L.x + math.cos(a) * d, 2, L.z + math.sin(a) * d)) * E.CFrame.Angles(rr(-0.2, 0.2), 0, rr(-0.2, 0.2)), "#6E8A3A", E.Enum.Material.Grass, false)
+		deco(l, "Reed", V(0.4, rr(3, 6), 0.4), at(V(L.x + math.cos(a) * d, 2, L.z + math.sin(a) * d)) * E.CFrame.Angles(rr(-0.2, 0.2), 0, rr(-0.2, 0.2)), "#6E7044", E.Enum.Material.LeafyGrass, false)
 	end
 end
 
@@ -663,23 +788,23 @@ local function buildRuins(root, cfg)
 		local L, W, H = rr(50, 80), rr(26, 36), rr(16, 24)
 		local cf = at(V(cx, 0, cz)) * yaw(rr(0, 3.14))
 		local m = model(f, "Greenhouse")
-		part(m, "Floor", V(L, 1, W), cf * E.CFrame.new(0, 0.5, 0), "#8F8778", E.Enum.Material.Cobblestone)
+		part(m, "Floor", V(L, 1, W), cf * E.CFrame.new(0, 0.5, 0), "#7A7468", E.Enum.Material.Cobblestone)
 		local posts = math.floor(L / 10)
 		for i = 0, posts do
 			for _, side in { -1, 1 } do
 				local broken = rnd() < 0.25
 				local hh = broken and H * rr(0.3, 0.7) or H
-				part(m, "Post", V(1, hh, 1), cf * E.CFrame.new(-L / 2 + i * L / posts, hh / 2, side * W / 2), "#3A3F44", E.Enum.Material.Metal)
+				part(m, "Post", V(1, hh, 1), cf * E.CFrame.new(-L / 2 + i * L / posts, hh / 2, side * W / 2), "#4A3E36", E.Enum.Material.CorrodedMetal)
 				if not broken and i < posts and rnd() < 0.6 then
-					part(m, "Pane", V(L / posts - 1, H - 2, 0.3), cf * E.CFrame.new(-L / 2 + (i + 0.5) * L / posts, H / 2, side * W / 2), "#9FD8C8", E.Enum.Material.Glass, { Transparency = 0.55 })
+					part(m, "Pane", V(L / posts - 1, H - 2, 0.3), cf * E.CFrame.new(-L / 2 + (i + 0.5) * L / posts, H / 2, side * W / 2), "#8FAAA2", E.Enum.Material.Glass, { Transparency = 0.5 })
 				end
 			end
 		end
 		if rnd() < 0.6 then
-			part(m, "Roof", V(L, 0.6, W), cf * E.CFrame.new(0, H, 0), "#3A3F44", E.Enum.Material.Metal, { Transparency = 0 })
+			part(m, "Roof", V(L, 0.6, W), cf * E.CFrame.new(0, H, 0), "#4A3E36", E.Enum.Material.CorrodedMetal, { Transparency = 0 })
 		end
 		for _ = 1, 4 do
-			deco(m, "Planter", V(rr(4, 8), 2, 3), cf * E.CFrame.new(rr(-L / 3, L / 3), 2, rr(-W / 3, W / 3)), "#6B4A33", E.Enum.Material.Wood, false)
+			deco(m, "Planter", V(rr(4, 8), 2, 3), cf * E.CFrame.new(rr(-L / 3, L / 3), 2, rr(-W / 3, W / 3)), "#5A4433", E.Enum.Material.WoodPlanks, false)
 		end
 	end
 end
@@ -749,7 +874,7 @@ local function buildGallery(root, cfg, names)
 	local g = folder(root, "ViewingGallery")
 	local c = V(cfg.Map.GALLERY_CENTER[1], cfg.Map.GALLERY_CENTER[2], cfg.Map.GALLERY_CENTER[3])
 	disc(g, "Deck", 150, 2, c, PAL.soot, E.Enum.Material.Marble)
-	disc(g, "Rim", 156, 1.6, c + V(0, 0.4, 0), PAL.gold, E.Enum.Material.Foil, { CanCollide = false })
+	disc(g, "Rim", 156, 1.6, c + V(0, 0.4, 0), PAL.gold, E.Enum.Material.Metal, { CanCollide = false })
 	disc(g, "Window", 70, 2.2, c + V(0, 0.1, 0), "#BFEFFF", E.Enum.Material.Glass, { Transparency = 0.6 })
 	disc(g, "WindowRing", 74, 2.1, c + V(0, 0.05, 0), PAL.goldHi, E.Enum.Material.Neon, { CanCollide = false })
 	local n = 36
@@ -795,7 +920,7 @@ local function buildLobby(root, cfg, names, _content)
 	local function P(x, y, z)
 		return L + V(x, y, z)
 	end
-	part(lb, "Plaza", V(360, 4, 360), at(P(0, -2, 0)), "#5B5A5C", E.Enum.Material.Cobblestone)
+	part(lb, "Plaza", V(360, 4, 360), at(P(0, -2, 0)), "#56534F", E.Enum.Material.Cobblestone)
 	part(lb, "Aisle", V(10, 4.05, 120), at(P(0, -2, -10)), "#7A7066", E.Enum.Material.Brick)
 	-- Reach buildings around the square (soot and slate, warm windows)
 	for side = 1, 4 do
@@ -819,7 +944,7 @@ local function buildLobby(root, cfg, names, _content)
 				for wy = 1, math.floor(h / 12) do
 					for wx = -1, 1 do
 						if rnd() < 0.75 then
-							deco(lb, "Window", V(4, 5, 0.4), b.CFrame * E.CFrame.new(wx * w / 3.2, -h / 2 + wy * 11, 15.1), rnd() < 0.6 and PAL.window or "#3A3F4A", rnd() < 0.6 and E.Enum.Material.Neon or E.Enum.Material.Glass, false)
+							deco(lb, "Window", V(4, 5, 0.4), b.CFrame * E.CFrame.new(wx * w / 3.2, -h / 2 + wy * 11, 15.1), rnd() < 0.6 and PAL.window or "#3A3F4A", rnd() < 0.35 and E.Enum.Material.Neon or E.Enum.Material.Glass, false)
 						end
 					end
 				end
@@ -832,7 +957,7 @@ local function buildLobby(root, cfg, names, _content)
 	-- the stage (faces +Z toward the crowd)
 	local st = folder(lb, "Stage")
 	part(st, "Platform", V(76, 6, 30), at(P(0, 3, -88)), PAL.marble, E.Enum.Material.Marble)
-	part(st, "Trim", V(77, 1.2, 30.5), at(P(0, 5.6, -88)), PAL.gold, E.Enum.Material.Foil)
+	part(st, "Trim", V(77, 1.2, 30.5), at(P(0, 5.6, -88)), PAL.gold, E.Enum.Material.Metal)
 	for i = 1, 3 do
 		part(st, "Step" .. i, V(14, 2 * i, 4), at(P(0, i, -73 + -(i - 1) * 4 + 8)), PAL.marble, E.Enum.Material.Marble)
 	end
@@ -841,18 +966,18 @@ local function buildLobby(root, cfg, names, _content)
 		part(st, "Pillar", V(5, 46, 5), at(P(i * 24, 23, -102)), "#D9D2C4", E.Enum.Material.Marble)
 	end
 	-- the Halcyon sun emblem (original): a gold disc and twelve rays
-	disc(st, "Sun", 16, 1, P(0, 30, -103.6), PAL.gold, E.Enum.Material.Foil, { CanCollide = false }).CFrame = at(P(0, 30, -103.6)) * E.CFrame.Angles(0, math.pi / 2, 0)
+	disc(st, "Sun", 16, 1, P(0, 30, -103.6), PAL.gold, E.Enum.Material.Metal, { CanCollide = false }).CFrame = at(P(0, 30, -103.6)) * E.CFrame.Angles(0, math.pi / 2, 0)
 	for k = 0, 11 do
 		local a = k / 12 * math.pi * 2
-		part(st, "Ray", V(1.4, 8, 0.6), at(P(math.cos(a) * 12, 30 + math.sin(a) * 12, -103.6)) * E.CFrame.Angles(0, 0, a - math.pi / 2), PAL.goldHi, E.Enum.Material.Neon, { CanCollide = false })
+		part(st, "Ray", V(1.4, 8, 0.6), at(P(math.cos(a) * 12, 30 + math.sin(a) * 12, -103.6)) * E.CFrame.Angles(0, 0, a - math.pi / 2), PAL.goldHi, E.Enum.Material.Metal, { CanCollide = false })
 	end
 	local jumbo = part(st, "Jumbotron", V(46, 24, 2), at(P(0, 62, -104)), "#14161C", E.Enum.Material.SmoothPlastic)
 	surfaceText(jumbo, E.Enum.NormalId.Back, names.TITLE:upper() .. "\n" .. names.EVENT:gsub("^the ", "The ") .. " · Jubilee Year", "#FFE9A8", "#14161C")
-	part(st, "JumboFrame", V(48, 26, 1.6), at(P(0, 62, -104.6)), PAL.gold, E.Enum.Material.Foil)
+	part(st, "JumboFrame", V(48, 26, 1.6), at(P(0, 62, -104.6)), PAL.gold, E.Enum.Material.Metal)
 	local flash = part(st, "Flashback", V(18, 11, 1), at(P(42, 40, -103.4)), "#23283A", E.Enum.Material.SmoothPlastic)
 	surfaceText(flash, E.Enum.NormalId.Back, "25 years ago...\n" .. names.MENTOR_SHORT .. ", age 16", "#F4EFE6", "#23283A")
 	-- glass globe of names
-	cyl(st, "GlobeStand", 6, 3, at(P(-14, 9, -88)) * E.CFrame.Angles(0, 0, math.pi / 2), PAL.gold, E.Enum.Material.Foil)
+	cyl(st, "GlobeStand", 6, 3, at(P(-14, 9, -88)) * E.CFrame.Angles(0, 0, math.pi / 2), PAL.gold, E.Enum.Material.Metal)
 	local globe = part(st, "Globe", V(8, 8, 8), at(P(-14, 16, -88)), "#DDF4FF", E.Enum.Material.Glass, { Transparency = 0.55, Shape = E.Enum.PartType.Ball })
 	for _ = 1, 26 do
 		deco(st, "Slip", V(0.9, 0.08, 0.5), at(P(-14 + rr(-2.2, 2.2), 14 + rr(-1.5, 2.2), -88 + rr(-2.2, 2.2))) * E.CFrame.Angles(rr(0, 3), rr(0, 3), rr(0, 3)), "#FFF8E7", E.Enum.Material.SmoothPlastic, false)
@@ -862,22 +987,35 @@ local function buildLobby(root, cfg, names, _content)
 	cyl(st, "Mic", 6, 0.3, at(P(4, 9, -80)) * E.CFrame.Angles(0, 0, math.pi / 2), "#2A2A2A", E.Enum.Material.Metal)
 	dball(st, "MicHead", 0.7, at(P(4, 12.2, -80)), "#2A2A2A", E.Enum.Material.Metal, false)
 	-- the Herald (faces the crowd)
-	local herald = MapBuilder.npc(st, "Herald", at(P(8, 6, -84)) * yaw(math.pi), {
-		skin = "#F1C9A5",
-		shirt = "#F2CF63",
-		pants = "#E9E4DA",
-		shoes = "#D4A72C",
-		hair = "#FF8A3D",
-		hat = "bun",
-		hatColor = "#FF8A3D",
-		pearls = true,
-		label = names.HERALD,
-		labelColor = "#FFE9A8",
-	})
+	local herald = MapBuilder.herald(st, at(P(8, 6, -84)) * yaw(math.pi), names.HERALD)
 	herald:SetAttribute("Role", "Herald")
 	-- Rusty waits beside the crowd, then walks up to the stage during the reaping
 	local rusty = MapBuilder.rusty(nil, lb, at(P(-44, 0, -30)) * yaw(-math.pi / 2), names.MENTOR)
 	rusty:SetAttribute("Role", "Mentor")
+	-- the interview set: Monty Gleam's couch corner beside the stage
+	local iv = folder(lb, "InterviewSet")
+	part(iv, "Riser", V(30, 2, 20), at(P(100, 1, -74)), "#3A2E28", E.Enum.Material.WoodPlanks)
+	part(iv, "Rug", V(16, 0.1, 10), at(P(100, 2.05, -74)), "#5A2E2E", E.Enum.Material.Fabric, { CanCollide = false })
+	for _, xc in { 95.5, 104.5 } do
+		part(iv, "Chair", V(3.2, 1.6, 3), at(P(xc, 2.8, -74)), "#4A3A30", E.Enum.Material.Leather)
+		part(iv, "ChairBack", V(3.2, 3.2, 0.6), at(P(xc, 4.4, -72.7)), "#4A3A30", E.Enum.Material.Leather)
+	end
+	part(iv, "SideTable", V(2, 2.2, 2), at(P(100, 3.1, -73)), "#2E2622", E.Enum.Material.Wood)
+	local ivBack = part(iv, "Backdrop", V(32, 16, 1), at(P(100, 9, -84.5)), "#22252C", E.Enum.Material.Fabric)
+	surfaceText(ivBack, E.Enum.NormalId.Back, "TONIGHT WITH " .. names.HOST:upper(), "#D9C38C", "#22252C")
+	for _, xc in { 88, 112 } do
+		part(iv, "LightStand", V(0.3, 10, 0.3), at(P(xc, 6, -62)), "#2A2A2A", E.Enum.Material.Metal)
+		local lamp = part(iv, "StudioLamp", V(2, 1.4, 1.4), at(P(xc, 11, -62)), "#D8CFB8", E.Enum.Material.Neon, { CanCollide = false })
+		local sl = E.Instance.new("SpotLight")
+		sl.Face = E.Enum.NormalId.Back
+		sl.Range = 28
+		sl.Angle = 60
+		sl.Brightness = 2
+		sl.Color = E.Color3.fromHex("#FFE2B8")
+		sl.Parent = lamp
+	end
+	local monty = MapBuilder.monty(iv, at(P(95.5, 2, -74)) * yaw(math.pi * 1.15), names.HOST)
+	monty:SetAttribute("Role", "Host")
 	-- crowd pens and townsfolk
 	local crowd = folder(lb, "Crowd")
 	for row = 0, 5 do
@@ -910,6 +1048,9 @@ local function buildLobby(root, cfg, names, _content)
 	cam("CamRusty", { -30, 9, -44 }, { -44, 5, -30 })
 	cam("CamStage", { 0, 16, -46 }, { -2, 9, -84 })
 	cam("CamPull", { 0, 70, 120 }, { 0, 20, -80 })
+	cam("CamInterview", { 103, 8.6, -58 }, { 100, 6.4, -73 })
+	cam("CamRange", { -118, 9, 4 }, { -150, 6, -4 })
+	mark(marks, "InterviewSeat", at(P(104.5, 2.2, -73)) * yaw(math.pi * 0.85))
 	mark(marks, "CrowdMark", at(P(0, 3, -6)))
 	mark(marks, "AisleMark", at(P(0, 3, -62)))
 	mark(marks, "StageMark", at(P(-2, 9, -82)))
@@ -920,14 +1061,14 @@ local function buildLobby(root, cfg, names, _content)
 	local q = folder(lb, "DrawGate")
 	part(q, "PillarL", V(5, 34, 5), at(P(-18, 17, 120)), PAL.marble, E.Enum.Material.Marble)
 	part(q, "PillarR", V(5, 34, 5), at(P(18, 17, 120)), PAL.marble, E.Enum.Material.Marble)
-	local lintel = part(q, "Lintel", V(44, 6, 6), at(P(0, 36, 120)), PAL.gold, E.Enum.Material.Foil)
+	local lintel = part(q, "Lintel", V(44, 6, 6), at(P(0, 36, 120)), PAL.gold, E.Enum.Material.Metal)
 	surfaceText(lintel, E.Enum.NormalId.Back, "THE DRAW GATE", "#1C1F2B", nil)
 	local pad = disc(q, "QueuePad", 30, 0.8, P(0, 0.4, 120), PAL.veil, E.Enum.Material.Neon)
 	prompt(pad, "queue", "Join the Draw", names.EVENT_SHORT, 0, 18)
 	-- boards
 	local function board(name, pos, rot, text)
 		local b = part(lb, name, V(30, 18, 1.5), at(P(pos[1], pos[2], pos[3])) * yaw(rot), "#23283A", E.Enum.Material.SmoothPlastic)
-		part(lb, name .. "Frame", V(31.5, 19.5, 1.2), b.CFrame * E.CFrame.new(0, 0, 0.3), PAL.gold, E.Enum.Material.Foil)
+		part(lb, name .. "Frame", V(31.5, 19.5, 1.2), b.CFrame * E.CFrame.new(0, 0, 0.3), PAL.gold, E.Enum.Material.Metal)
 		surfaceText(b, E.Enum.NormalId.Back, text, "#F4EFE6", "#23283A")
 		prompt(b, name:lower(), "Open", name, 0, 16)
 		return b
@@ -943,7 +1084,7 @@ local function buildLobby(root, cfg, names, _content)
 		disc(tr, "Bull" .. k, 2, 0.7, P(-149.9, 6, -40 + k * 14), "#B3262E", E.Enum.Material.SmoothPlastic, { CanCollide = false }).CFrame = at(P(-149.6, 6, -40 + k * 14))
 		part(tr, "TargetPost" .. k, V(0.6, 4, 0.6), at(P(-150, 2, -40 + k * 14)), "#4A3426", E.Enum.Material.Wood)
 	end
-	local trPad = disc(tr, "RangePad", 16, 0.6, P(-110, 0.3, 0), PAL.gold, E.Enum.Material.Foil)
+	local trPad = disc(tr, "RangePad", 16, 0.6, P(-110, 0.3, 0), PAL.gold, E.Enum.Material.Metal)
 	prompt(trPad, "training", "Train", "Target Range", 0, 12)
 	-- lamps
 	for k = 1, 12 do
@@ -963,11 +1104,126 @@ local function buildLobby(root, cfg, names, _content)
 	spawn.Size = V(16, 1, 16)
 	spawn.CFrame = at(P(0, 0.5, 80))
 	spawn.Color = E.Color3.fromHex(PAL.gold)
-	spawn.Material = E.Enum.Material.Foil
+	spawn.Material = E.Enum.Material.Metal
 	spawn.Neutral = true
 	spawn.Duration = 0
 	spawn.Parent = lb
 	return lb
+end
+
+-- ===================== realism: vegetation + ambient particles =====================
+-- A clump of four narrow, splayed blades per tuft (reads as grass, not slabs); muted olive
+-- greens; no collision so they never snag movement. Terrain grass decoration replaces most of
+-- this at runtime when Look.terrainGrass is on.
+local function tuft(parent, pos, scale)
+	local m = model(parent, "Tuft")
+	local c = pick(PAL.grass)
+	local r = rr(0, 6.28)
+	for k = 0, 3 do
+		local h = rr(0.9, 2.1) * scale
+		local a = r + k * 1.57 + rr(-0.3, 0.3)
+		local tilt = rr(0.18, 0.42)
+		local off = V(math.cos(a), 0, math.sin(a)) * (math.sin(tilt) * h / 2)
+		deco(m, "Blade", V(0.05, h, rr(0.14, 0.24) * scale), at(pos + off + V(0, h / 2 * math.cos(tilt), 0)) * yaw(-a) * E.CFrame.Angles(0, 0, -tilt), c, E.Enum.Material.LeafyGrass, false)
+	end
+	return m
+end
+
+local function bush(parent, pos, s)
+	local m = model(parent, "Bush")
+	local c = pick({ "#4A5634", "#56603A", "#3F4A30", "#5E6340" })
+	for k = 1, 3 do
+		local o = V(rr(-1.2, 1.2) * s, 0, rr(-1.2, 1.2) * s)
+		local d = rr(2.4, 4) * s
+		sph(m, "Leaves", V(d * 1.2, d * 0.8, d), at(pos + o + V(0, d * 0.32, 0)) * yaw(rr(0, 3)), c, E.Enum.Material.LeafyGrass, { CanCollide = false, CanQuery = false, CastShadow = k == 1 })
+	end
+	return m
+end
+
+local function buildVegetation(root, cfg)
+	local f = folder(root, "Vegetation")
+	local M, L = cfg.Map.MEADOW, cfg.Map.LAKE
+	-- the open field around the Sundial (where most fights start)
+	local n, tries = 0, 0
+	while n < 1100 and tries < 6000 do
+		tries += 1
+		local a, d = rr(0, math.pi * 2), rr(150, 700)
+		local x, z = math.cos(a) * d, math.sin(a) * d
+		local b = MapBuilder.biomeAt(x, z, cfg)
+		if b == "field" or b == "wood" or b == "ruins" then
+			tuft(f, V(x, 0, z), 1)
+			n += 1
+		end
+	end
+	-- denser, taller grass through the Gilded Meadow
+	for _ = 1, 650 do
+		local a, d = rr(0, math.pi * 2), math.sqrt(rnd()) * (M.r - 6)
+		tuft(f, V(M.x + math.cos(a) * d, 0.4, M.z + math.sin(a) * d), 1.25)
+	end
+	-- reeds and grass on the lake shore
+	for _ = 1, 220 do
+		local a = rr(0, math.pi * 2)
+		local d = L.r + rr(4, 34)
+		tuft(f, V(L.x + math.cos(a) * d, 0.5, L.z + math.sin(a) * d), 1.1)
+	end
+	-- bushes
+	local b, bt = 0, 0
+	while b < 240 and bt < 3000 do
+		bt += 1
+		local x, z = rr(-1100, 1100), rr(-700, 1100)
+		local bi = MapBuilder.biomeAt(x, z, cfg)
+		if (bi == "field" or bi == "wood" or bi == "meadow") and math.sqrt(x * x + z * z) > 170 then
+			bush(f, V(x, bi == "meadow" and 0.4 or 0, z), rr(0.8, 1.5))
+			b += 1
+		end
+	end
+end
+
+local function emitter(parent, name, size, pos, o)
+	local p = mark(parent, name, at(pos))
+	p.Size = size
+	local pe = E.Instance.new("ParticleEmitter")
+	pe.Name = name
+	pe.Shape = E.Enum.ParticleEmitterShape.Box
+	pe.ShapeStyle = E.Enum.ParticleEmitterShapeStyle.Volume
+	pe.Rate = o.rate
+	pe.Lifetime = E.NumberRange.new(o.life[1], o.life[2])
+	pe.Speed = E.NumberRange.new(o.speed[1], o.speed[2])
+	pe.SpreadAngle = E.Vector2.new(180, 180)
+	pe.Size = E.NumberSequence.new(o.size)
+	pe.Transparency = E.NumberSequence.new(o.transparency)
+	pe.LightEmission = o.light or 0
+	pe.LightInfluence = 1
+	pe.Color = E.ColorSequence.new(E.Color3.fromHex(o.color))
+	pe.Rotation = E.NumberRange.new(0, 360)
+	pe.RotSpeed = E.NumberRange.new(-8, 8)
+	pe.Drag = o.drag or 0
+	pe.Acceleration = o.accel or V(0, 0, 0)
+	if o.texture then
+		pe.Texture = o.texture
+	end
+	pe.Parent = p
+	return p, pe
+end
+
+-- Dust motes drifting in the low sun (lobby, Sundial, ruins) and mist rolling on Mirror Lake.
+local function buildAmbience(map, cfg)
+	local f = folder(map, "Ambience")
+	local Lc = cfg.Map.LOBBY_CENTER
+	local LB = V(Lc[1], Lc[2], Lc[3])
+	local dust = { rate = 14, life = { 8, 14 }, speed = { 0.1, 0.5 }, size = 0.09, transparency = 0.35, light = 0.5, color = "#F2DDB8", drag = 1, accel = V(0.15, 0.02, 0) }
+	emitter(f, "DustMotes", V(220, 26, 220), LB + V(0, 13, -20), dust)
+	emitter(f, "DustMotes", V(200, 30, 200), V(0, 15, 0), dust)
+	local R = cfg.Map.RUINS
+	emitter(f, "DustMotes", V(R.r * 1.4, 24, R.r * 1.4), V(R.x, 12, R.z), dust)
+	local L = cfg.Map.LAKE
+	local mist = { rate = 4, life = { 12, 18 }, speed = { 0.4, 1.2 }, size = 26, transparency = 0.88, light = 0.1, color = "#D8DEDE", drag = 0.3, accel = V(0.6, 0.05, 0.2), texture = "rbxasset://textures/particles/smoke_main.dds" }
+	for k = 0, 5 do
+		local a = k / 6 * math.pi * 2
+		emitter(f, "LakeMist", V(L.r * 0.9, 4, L.r * 0.9), V(L.x + math.cos(a) * L.r * 0.4, 4, L.z + math.sin(a) * L.r * 0.4), mist)
+	end
+	local M = cfg.Map.MEADOW
+	emitter(f, "MeadowHaze", V(M.r * 1.6, 6, M.r * 1.6), V(M.x, 4, M.z), { rate = 2, life = { 14, 20 }, speed = { 0.2, 0.6 }, size = 30, transparency = 0.92, color = "#E6D6B8", texture = "rbxasset://textures/particles/smoke_main.dds" })
 end
 
 -- ===================== templates the server clones =====================
@@ -1014,10 +1270,12 @@ function MapBuilder.build(env, ws, cfg, names, content)
 	buildRidge(arena, cfg)
 	buildRuins(arena, cfg)
 	buildScatter(arena, cfg)
+	buildVegetation(arena, cfg)
 	buildTokens(arena, cfg, content)
 	buildVeil(arena, cfg)
 	buildGallery(map, cfg, names)
 	buildLobby(map, cfg, names, content)
+	buildAmbience(map, cfg)
 	buildTemplates(map)
 	return map
 end

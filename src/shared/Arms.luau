@@ -111,6 +111,12 @@ local function spear(o)
 			table.insert(parts, P("Ear", "Block", { 0.1, 0.42, 0.14 }, { (a > 0 and 0.16 or -0.16) * (i > 2 and 1.4 or 1), 4.25 - (i > 2 and 0.3 or 0), 0 }, { 0, 0, a }, "#E9C46A", "Fabric"))
 		end
 	end
+	if h == "fork" then
+		table.insert(parts, P("ForkBar", "Block", { 0.12, 0.12, 0.9 }, { 0, 4.62, 0 }, nil, hc, hm))
+		for i, z in ipairs({ -0.38, 0, 0.38 }) do
+			table.insert(parts, P("Tine" .. i, "Cylinder", { 0.9, 0.09, 0.09 }, { 0, 5.08, z }, { 0, 0, 90 }, hc, hm))
+		end
+	end
 	if o.ribbon then
 		table.insert(parts, P("Ribbon", "Block", { 0.04, 0.9, 0.18 }, { 0.16, 4.05, 0 }, { 0, 0, 12 }, o.ribbon, "Fabric"))
 	end
@@ -139,6 +145,8 @@ Arms.SKINS = {
 		skin_bow_regent = function() return bow({ wood = "#C98A2E", mat = "Foil", grip = "#5A1E1E", tip = "sun", accent = "#FFD36B", bands = 3, disk = true, width = 1.25, glowColor = "#FFB347" }) end,
 		skin_bow_harvest = function() return bow({ wood = "#8C5A2B", mat = "Wood", grip = "#3E2A18", tip = "leaf", accent = "#E9C46A", accentMat = "Fabric", bands = 1, string = "#F2D27A" }) end,
 		skin_bow_comet = function() return bow({ wood = "#2A2F55", mat = "SmoothPlastic", grip = "#14172B", tip = "crystal", accent = "#BFD4FF", inlay = "#9DB4FF" }) end,
+		skin_bow_s2_orchard = function() return bow({ wood = "#7A3B2A", mat = "Wood", grip = "#2E1B12", tip = "leaf", accent = "#C8553D", accentMat = "Fabric", bands = 2, string = "#E9C46A" }) end,
+		skin_bow_founders = function() return bow({ wood = "#E6D8BE", mat = "Wood", grip = "#7A2E1E", tip = "sun", accent = "#F4C27A", accentMat = "Fabric", bands = 1, glowColor = "#FFB38A" }) end,
 	},
 	spear = {
 		[""] = function() return spear({ shaft = "#8A6A3A", head = "leaf" }) end,
@@ -147,12 +155,14 @@ Arms.SKINS = {
 		skin_spear_lake = function() return spear({ shaft = "#C9D9DE", shaftMat = "Marble", head = "glass", headColor = "#6FD3E8", accent = "#8FB8C6", ribbon = "#6FD3E8" }) end,
 		skin_spear_wheat = function() return spear({ shaft = "#C8A05A", head = "wheat", headColor = "#D9B45A", headMat = "Foil", accent = "#8C6A2E", ribbon = "#E9C46A" }) end,
 		skin_spear_regent = function() return spear({ shaft = "#5A1E1E", shaftMat = "Fabric", head = "leaf", headColor = "#FFD36B", headMat = "Foil", accent = "#FFD36B", accentMat = "Foil", ribbon = "#FFB347" }) end,
+		skin_spear_s2_pitch = function() return spear({ shaft = "#9C6B3E", head = "fork", headColor = "#5E5F63", headMat = "Metal", accent = "#3A3633" }) end,
 	},
 	knife = {
 		[""] = function() return knife({ blade = "#BFC6CF" }) end,
 		skin_knife_copper = function() return knife({ blade = "#D98A4E", bladeMat = "Foil", accent = "#8C4B24", handle = "#2B1D14" }) end,
 		skin_knife_night = function() return knife({ blade = "#2A2440", bladeMat = "Glass", accent = "#8E7CFF", handle = "#141020", edge = "#8E7CFF" }) end,
 		skin_knife_lantern = function() return knife({ blade = "#F2E3C0", bladeMat = "Marble", accent = "#FFC86B", accentMat = "Neon", handle = "#7A2E1E" }) end,
+		skin_knife_s2_sickle = function() return knife({ blade = "#CFD8E3", bladeMat = "Metal", accent = "#6B7480", handle = "#4A3424", edge = "#EAF2FF" }) end,
 	},
 }
 
@@ -182,6 +192,8 @@ local FX = {
 	skin_spear_regent = { light = "#FFD36B" },
 	skin_knife_night = { light = "#8E7CFF" },
 	skin_knife_lantern = { light = "#FFC86B" },
+	skin_bow_founders = { light = "#FFB38A" },
+	skin_knife_s2_sickle = { light = "#EAF2FF" },
 }
 
 function Arms.has(slot: string, skinId: string): boolean

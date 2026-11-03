@@ -90,11 +90,23 @@ Content.RUSTY = {
 	pact = "A pact's a promise. Promises are heavy. Pick who you carry.",
 	snapped = "That stung, didn't it? Now you know who they are.",
 	training = "Not bad. Not bad at all.",
+	-- v5
+	onboardDone = "That's the basics, kid. Everything else you learn by doing. Go on.",
+	welcomeBack = "There you are! Kept your seat warm. Here's a little Favor to get you going.",
+	archive = "Archive Reel tonight. That's me, twenty-five years back, borrowed coat and all. Outlast the young fool.",
+	quick = "Quick Trials. No parade, no speeches. Straight to the plates.",
+	party = "Brought the whole family, did you? Good. Stick together till the final four.",
+	festival = "Founders' Dawn! Lanterns up. First sunrise after the Long Dark, and we still celebrate it.",
 } :: { [string]: string }
 
 -- Rusty packs (Item Shop): extra voice lines that replace the defaults when equipped.
 -- Text lines now; `sound` slots in Store.luau take recorded voice IDs later.
 Content.RUSTY_PACKS = {
+	rusty_s2_farmer = {
+		win = "Good harvest, kid. You planted early and you picked clean.",
+		lose = "Frost gets the best fields some years. We sow again tomorrow.",
+		launch = "Mind the rows and keep your back to the sun. Off you go.",
+	},
 	rusty_thermos = {
 		win = "*clink* To you, champ. Thermos is full and so am I. Proud, I mean.",
 		lose = "Have a sip. Warm tea fixes most things. The rest we fix next match.",
@@ -181,6 +193,9 @@ Content.FADES = {
 	fade_comet = { name = "Comet Tail", color = "#9DB4FF", style = "comet" },
 	fade_petals = { name = "Petal Storm", color = "#FF9EC7", style = "petals" },
 	fade_sunburst = { name = "Sunburst", color = "#FFB347", style = "burst" },
+	fade_s2_windmill = { name = "Windmill Sails", color = "#E8D9B5", style = "ribbons" },
+	fade_s2_fireflies = { name = "Firefly Field", color = "#D7F27A", style = "stars" },
+	fade_archive_reel = { name = "Archive Reel", color = "#C9A97A", style = "ash" },
 } :: { [string]: { name: string, color: string, style: string } }
 
 Content.FADE_STYLES = { "column", "embers", "shimmer", "petals", "lanterns", "ash", "ribbons", "stars", "comet", "burst" }

@@ -30,6 +30,29 @@ local Store = require(Shared.Store)
 local Names = require(Shared.Names)
 local Content = require(Shared.Content)
 local Offers = require(Shared.Offers)
+local Funnel = require(Shared.Logic.Funnel)
+local Events = require(Shared.Logic.Events)
+local AnalyticsService = game:GetService("AnalyticsService")
+
+-- v5: first-purchase funnel (shop_open > item_view > try_on > prompt > purchase), one session per
+-- shop visit, logged only until the player's first purchase. Server-side only, as Roblox requires.
+local shopOpens: { [Player]: number } = {}
+local function funnel(player: Player, data: any, step: string)
+	if data and (data.spent or 0) > 0 and step ~= "purchase" then
+		return
+	end
+	local n = Funnel.step(Funnel.SHOP_STEPS, step)
+	if not n then
+		return
+	end
+	if (step :: string) == "shop_open" then
+		shopOpens[player] = (shopOpens[player] or 0) + 1
+	end
+	local session = Funnel.session(player.UserId, shopOpens[player] or 1)
+	pcall(function()
+		AnalyticsService:LogFunnelStepEvent(player, Funnel.SHOP, session, n, step)
+	end)
+end
 Store.addReachPride(Names.REACH_LIST)
 
 local PurchaseService = {}
@@ -129,7 +152,7 @@ function PurchaseService.shopView(player: Player): any
 	end
 	local shelves = {}
 	for _, it in ipairs(Store.ITEMS) do
-		if not it.rot and not it.earned then
+		if not it.rot and not it.earned and not it.event then
 			shelves[it.cat] = shelves[it.cat] or {}
 			table.insert(shelves[it.cat], card(it))
 		end
@@ -138,7 +161,20 @@ function PurchaseService.shopView(player: Player): any
 	for _, b in ipairs(Store.BUNDLES) do
 		local o = assert(Store.offer("bundle", b.id))
 		local ok, why = Store.canReceive(o, owned, wk, flags)
-		table.insert(bundles, { id = b.id, name = b.name, price = b.price, icon = b.icon, desc = b.desc, value = Store.value(b, nil), missing = Store.value(b, owned), canBuy = ok, why = why, once = b.once, count = #b.items })
+		local _, saving = Store.anchor(b, owned)
+		table.insert(bundles, { id = b.id, name = b.name, price = b.price, icon = b.icon, desc = b.desc, value = Store.value(b, nil), missing = Store.value(b, owned), saving = saving, canBuy = ok, why = why, once = b.once, count = #b.items, event = b.event })
+	end
+	-- v5: the festival shelf (only while the festival is on; it comes back every year)
+	local fest = nil
+	local ev = Events.active(os.time())
+	if ev then
+		local items = {}
+		for _, it in ipairs(Store.ITEMS) do
+			if it.event == ev.id and not it.earned then
+				table.insert(items, card(it))
+			end
+		end
+		fest = { name = ev.name, blurb = ev.blurb, items = items }
 	end
 	local nextWeek = Store.weekStart(wk + 1)
 	-- v4: what's coming next week (names only, so players can plan; no countdown copy)
@@ -151,6 +187,7 @@ function PurchaseService.shopView(player: Player): any
 	return {
 		week = wk,
 		upcoming = upcoming,
+		festival = fest,
 		dropName = dropNow and Store.DROP_NAMES[dropNow] or nil,
 		nextDropName = dropNext and Store.DROP_NAMES[dropNext] or nil,
 		mastery = data and data.mastery or {},
@@ -387,6 +424,7 @@ local function shopBuy(player: Player, kind: any, id: any, opts: any): (boolean,
 	end
 	data.intent = { kind = o.kind, id = o.id, price = o.price, to = toUser, t = os.time() }
 	ctx.Progress.markDirty(player)
+	funnel(player, data, "prompt")
 	MarketplaceService:PromptProductPurchase(player, product.id)
 	return true, nil
 end
@@ -401,7 +439,12 @@ local function grantShopReceipt(player: Player, data: any, key: string): string
 		logBuy(data, "Shop Voucher", p.price, nil)
 		return string.format("You have a R$ %d Shop Voucher. Use it on any item at that price or lower.", p.price)
 	end
-	return deliver(player, data, o, intent and intent.to)
+	local firstBuy = (data.spent or 0) == 0
+	local msg = deliver(player, data, o, intent and intent.to)
+	if firstBuy then
+		funnel(player, data, "purchase")
+	end
+	return msg
 end
 
 local function subscribe(player: Player): (boolean, string?)
@@ -537,6 +580,21 @@ local function seenShop(player: Player): (boolean, string?)
 	return true, nil
 end
 
+-- v5: client-reported shop steps (open, view a buy card, try on). Only names in the list count.
+local function shopStep(player: Player, step: any): (boolean, string?)
+	if type(step) ~= "string" or step == "prompt" or step == "purchase" then
+		return false, nil
+	end
+	local data = ctx.Progress.dataOf(player)
+	funnel(player, data, step)
+	if step == "shop_open" and data and not data.shopOpenedOnce then
+		data.shopOpenedOnce = true
+		ctx.Progress.funnel(player, "first_shop_open")
+		ctx.Progress.markDirty(player)
+	end
+	return true, nil
+end
+
 local function processReceipt(info: any): Enum.ProductPurchaseDecision
 	local player = Players:GetPlayerByUserId(info.PlayerId)
 	if not player then
@@ -577,6 +635,10 @@ function PurchaseService.init(c: any)
 	ctx.handle("subscribe", subscribe)
 	ctx.handle("plus", plus)
 	ctx.handle("seenShop", seenShop)
+	ctx.handle("shopStep", shopStep)
+	Players.PlayerRemoving:Connect(function(p)
+		shopOpens[p] = nil
+	end)
 end
 
 function PurchaseService.start()

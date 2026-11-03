@@ -102,7 +102,7 @@ Subscription IDs look like `EXP-...`; paste it into `Monetization.Subscriptions.
 | Fades | `fade_ash` | Ash and Embers | 149 | Weekly rotation |
 | Fades | `fade_aurora` | Aurora Fade | 199 | Weekly rotation |
 | Fades | `fade_starfall` | Starfall Fade | 299 | Weekly rotation |
-| Poses | `pose_salute` | Reach Salute | 49 | Always |
+| Poses | `pose_heart` | Hand on Heart | 49 | Always |
 | Poses | `pose_bow` | Curtain Bow | 99 | Always |
 | Poses | `pose_lantern` | Lantern Raise | 199 | Weekly rotation |
 | Poses | `pose_crown` | Wheat Crown Toss | 299 | Weekly rotation |
@@ -162,6 +162,24 @@ Each Rusty pack plays a short babble from a stock Roblox sound, pitched per pack
 
 Members (`player.HasRobloxSubscription`, falling back to `MembershipType == Premium`) get one free cosmetic each month, cycling through `Store.MEMBER_MONTHLY`, granted when they join. It is never sold. Premium Payouts are retired; your Plus income now comes through Creator Rewards, which counts Active Spenders who play 10+ minutes. The Daily Ten bonus (+150 XP and 2 ★ for 10 minutes a day) is built around that. Check in Studio that `HasRobloxSubscription` reads without errors (it's wrapped in pcall).
 
+### 6j. v5: Founders' Dawn, Season 2 and funnels
+
+- **Founders' Dawn** runs 18–30 November (UTC) every year by itself (`src/shared/Logic/Events.luau`). During it the shop shows a festival shelf:
+
+| ID | Name | R$ |
+|---|---|---|
+| `skin_bow_founders` | Founders' Bow | 199 |
+| `pose_first_sunrise` | First Sunrise | 199 |
+| `wrap_s_festival` | Festival Lantern Wrap | 99 |
+| `parade_dawn_coat` | Dawn Festival Coat | 149 |
+| `founders_set` (bundle) | Founders' Dawn Set (all four, R$ 646 of items) | 499 |
+
+  Free festival rewards: Founders' Lantern banner (3 matches), Dawn Ribbon nametag (3 different days) and the Archive Reel fade (top 5 in an Archive Reel match).
+- **Season 2 "High Harvest"** opens at season week 10 (`Store.SEASON2_WEEK`): four drops of three items in weeks 10–13, plus the **High Harvest Collection** (`high_harvest`, R$ 1,999 for 12 items worth R$ 2,488). No setup is needed; everything uses the shop vouchers.
+- **Funnels:** the server logs the onboarding funnel (`LogOnboardingFunnelStepEvent`: joined, first match, the five checklist steps, second match, first shop open) and a `ShopFirstPurchase` funnel (`LogFunnelStepEvent`: shop open, item view, try on, prompt, purchase; only until the first purchase). See Creator Hub > Analytics > Funnels after launch.
+- **Share moments** use `CaptureService:TakeScreenshotCaptureAsync` and `PromptShareCapture`, shown only when `PolicyService` says `IsContentSharingAllowed`. Test in the published game.
+- **Family Rules** for private servers is free and on by default; the owner can switch it off in Party.
+
 ### 6i. Things to check in Studio before launch
 
 - **Held weapons:** grips are set in `Arms.luau` (`grip()`); if a bow sits at an odd angle on your avatar type, change the angle there.
@@ -220,9 +238,9 @@ The game also nudges each player's scales into these ranges when they spawn (`Lo
 
 | File | Use | Notes |
 |---|---|---|
-| `marketing/icon-512.png` | Game icon (512×512) | Rusty and the Herald on the Draw stage under the Sundial crest, with the title. |
-| `marketing/thumbnail-1-launch.png` | Thumbnail 1 (1920×1080) | "48 contenders · one Sundial · last one standing" with all 48 lift plates. |
-| `marketing/thumbnail-2-meadow.png` | Thumbnail 2 (1920×1080) | "NEXT MATCH IN 10s" over the Gilded Meadow. |
+| `marketing/icon-512.png` | Game icon (512×512) | v5 realistic render: the Sundial at dawn with the serif title. |
+| `marketing/thumbnail-1-launch.png` | Thumbnail 1 (1920×1080) | v5 realistic render: 48 lift plates around the Sundial, "48 contenders · one Sundial · last one standing". |
+| `marketing/thumbnail-2-meadow.png` | Thumbnail 2 (1920×1080) | v5 realistic render: the Gilded Meadow in haze, "Quick Trials: 5-minute matches · squads of up to 10 · Family Rules in private servers". |
 
 Upload them under **Configure > Thumbnails** and **Basic Info > Icon**. These come from a preview renderer; swap in real Studio screenshots once you can (hide the UI via **PlayerGui > Daybreak > Enabled = off**, then **View > Screenshot**). If you rename the game, re-letter the icon and thumbnail 1.
 

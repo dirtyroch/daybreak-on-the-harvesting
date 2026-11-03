@@ -33,6 +33,12 @@ local Award = require(Shared.Logic.Award)
 local Store = require(Shared.Store)
 local Mastery = require(Shared.Mastery)
 local Anim = require(Shared.Anim)
+local Onboarding = require(Shared.Logic.Onboarding)
+local Comeback = require(Shared.Logic.Comeback)
+local Events = require(Shared.Logic.Events)
+local Funnel = require(Shared.Logic.Funnel)
+local Moments = require(Shared.Logic.Moments)
+local AnalyticsService = game:GetService("AnalyticsService")
 Store.addReachPride(Names.REACH_LIST)
 
 local ProgressService = {}
@@ -153,6 +159,11 @@ function ProgressService.snapshot(player: Player): any?
 		masteryPerks = Mastery.PERKS,
 		dailyTen = { seconds = data.dailyTen.seconds, goal = Config.DailyTen.seconds, claimed = data.dailyTen.claimed },
 		invites = data.referral.brought,
+		-- v5
+		onboarding = ProgressService.onboardingView(data),
+		homecoming = data.comeback.homecoming,
+		festival = ProgressService.festivalView(data),
+		mode = data.settings.mode,
 	}
 end
 
@@ -278,6 +289,7 @@ export type MatchResult = {
 	partner: boolean,
 	bonusStars: number,
 	pactKept: boolean?,
+	archive: boolean?, -- v5: an Archive Reel match during Founders' Dawn
 }
 
 -- Encore fix: a contender already paid at their knockout, voted back in by the Gallery and then
@@ -430,7 +442,7 @@ local function checkReferral(player: Player, data: any)
 	if type(launch) ~= "string" or launch:sub(1, 4) ~= "ref:" then
 		return
 	end
-	local by = tonumber(launch:sub(5))
+	local by = Moments.parse(launch)
 	if not by or by == player.UserId or data.referral.by ~= 0 then
 		return
 	end
@@ -526,6 +538,91 @@ function ProgressService.takeFavorBank(player: Player): number
 	return n
 end
 
+-- ===== v5: onboarding, comeback, festival, funnels =====
+-- Onboarding funnel (server-only; Roblox ignores Studio and client events). One-time per user.
+function ProgressService.funnel(player: Player, stepName: string)
+	local n = Funnel.step(Funnel.ONBOARDING_STEPS, stepName)
+	if n then
+		pcall(function()
+			AnalyticsService:LogOnboardingFunnelStepEvent(player, n, stepName)
+		end)
+	end
+end
+
+function ProgressService.onboardingView(data: any): any
+	local cur = Onboarding.current(data.onboarding, data.stats.matches)
+	if not cur then
+		return nil
+	end
+	local n, total = Onboarding.progress(data.onboarding)
+	return { title = cur.title, tip = cur.tip, done = n, total = total }
+end
+
+-- A new contender did one of the checklist things (open a crate, pick up a weapon, ...).
+function ProgressService.onboard(player: Player, event: string)
+	local data = ProgressService.dataOf(player)
+	if not data or data.onboarding.finished or data.stats.matches >= Onboarding.HIDE_AFTER_MATCHES then
+		return
+	end
+	local done = Onboarding.mark(data.onboarding, event)
+	if #done == 0 then
+		return
+	end
+	for _, st in ipairs(done) do
+		giveXp(player, data, st.xp)
+		ProgressService.funnel(player, st.event)
+		local nextStep = Onboarding.current(data.onboarding, data.stats.matches)
+		ctx.push(player, "onboard", {
+			done = st.title,
+			xp = st.xp,
+			nextTitle = nextStep and nextStep.title or nil,
+			nextTip = nextStep and nextStep.tip or nil,
+			finished = data.onboarding.finished,
+			line = data.onboarding.finished and Content.RUSTY.onboardDone or nil,
+		})
+	end
+	ProgressService.markDirty(player)
+	task.defer(ProgressService.sendState, player)
+end
+
+function ProgressService.festivalView(data: any): any
+	local e = Events.active(os.time())
+	if not e then
+		return nil
+	end
+	local p = Events.progressFor(data.festival, e, Events.yearOf(os.time()))
+	local rewards = {}
+	for _, r in ipairs(Events.REWARDS[e.id] or {}) do
+		local it = Store.byId[r.id]
+		table.insert(rewards, { id = r.id, name = it and it.name or r.id, label = r.label, got = p.got[r.id] == true })
+	end
+	local _, finish = Events.window(e, Events.yearOf(os.time()))
+	return { id = e.id, name = e.name, blurb = e.blurb, rewards = rewards, matches = p.matches, endsIn = finish - os.time() }
+end
+
+-- On join: Rusty's welcome-back letter, Favor and a Homecoming bonus after 3+ days away.
+local function checkComeback(player: Player, data: any)
+	local sw = Store.seasonWeek(Store.week(os.time()))
+	local tier = SeasonTrack.tierFor(data.season.stars, Config.STARS_PER_TIER)
+	local w = Comeback.onJoin(data.comeback, today(), sw, tier)
+	if not w then
+		return
+	end
+	data.favorBank = math.min(Config.Sponsors.favorCap, (data.favorBank or 0) + w.favor)
+	ctx.push(player, "welcomeBack", {
+		days = w.days,
+		favor = w.favor,
+		matches = w.matches,
+		catchUpTier = w.catchUpTier,
+		line = Content.RUSTY.welcomeBack,
+		festival = (function(): string?
+			local e = Events.active(os.time())
+			return if e then e.name else nil
+		end)(),
+	})
+	ProgressService.markDirty(player)
+end
+
 -- Called once per contender when their match ends (knocked out or at the podium).
 function ProgressService.award(player: Player, r: MatchResult): any
 	local data = ProgressService.dataOf(player)
@@ -541,11 +638,13 @@ function ProgressService.award(player: Player, r: MatchResult): any
 	local playCount = Leveling.playStreak(data.play, os.time(), Config.PLAY_STREAK_WINDOW)
 	local playMult = Leveling.playMult(playCount, Config.PLAY_STREAK_STEP, Config.PLAY_STREAK_MAX)
 	local base = Award.baseXp(r :: any, Config.XP)
-	local mult = playMult * ProgressService.boostMult(player, data)
+	local homecoming = Comeback.useMatch(data.comeback) -- v5: +50% for 3 matches after time away
+	local mult = playMult * ProgressService.boostMult(player, data) + homecoming
 	local xp = math.floor(base * mult)
 	local levels = giveXp(player, data, xp)
-	-- Season stars
+	-- Season stars (v5: doubled while catching up after 14+ days away, never past a weekly pace)
 	local stars = Award.stars(r.place, Config.STARS, r.bonusStars)
+	stars *= Comeback.starMult(data.comeback, SeasonTrack.tierFor(data.season.stars, Config.STARS_PER_TIER))
 	local tiersUp = SeasonTrack.addStars(data.season, stars, Config.STARS_PER_TIER)
 	-- Daily streak counts on the first finished match of the day
 	local streakMsg: string? = nil
@@ -598,6 +697,24 @@ function ProgressService.award(player: Player, r: MatchResult): any
 	add("partnermatches", r.partner and 1 or 0)
 	add("encore", r.encore and 1 or 0)
 	finishChallenges(player, data, done)
+	-- v5: first matches, festival rewards
+	if st.matches == 1 then
+		ProgressService.funnel(player, "first_match")
+	elseif st.matches == 2 then
+		ProgressService.funnel(player, "second_match")
+	end
+	if st.matches == Onboarding.HIDE_AFTER_MATCHES then
+		ProgressService.grant(player, "sash_homecoming", "Five matches in! Rusty pins a Homecoming Sash on you.")
+	end
+	local fest = Events.active(os.time())
+	if fest then
+		local p = Events.progressFor(data.festival, fest, Events.yearOf(os.time()))
+		data.festival = p
+		for _, id in ipairs(Events.recordMatch(p, today(), r.archive == true and r.place <= 5)) do
+			local it = Store.byId[id]
+			ProgressService.grant(player, id, fest.name .. " reward: " .. (it and it.name or id) .. "!")
+		end
+	end
 	-- Reach loyalty
 	if data.reach ~= "" then
 		local pts = ReachStandings.pointsFor(r.place, r.knocks)
@@ -616,6 +733,7 @@ function ProgressService.award(player: Player, r: MatchResult): any
 		tiersUp = tiersUp,
 		streakMsg = streakMsg,
 		prevBest = prevBest,
+		homecoming = homecoming > 0 and data.comeback.homecoming or nil,
 	}
 end
 
@@ -908,6 +1026,10 @@ local function onLoaded(player: Player, profile: any, isNew: boolean)
 		end
 	end)
 	deliverLetters(player, data)
+	checkComeback(player, data)
+	if isNew then
+		ProgressService.funnel(player, "joined")
+	end
 	ProgressService.sendState(player)
 	player.CharacterAdded:Connect(function()
 		task.wait(1)
@@ -937,6 +1059,14 @@ function ProgressService.init(c: any)
 	ctx.handle("emote", emote)
 	ctx.handle("seenReaping", seenReaping)
 	ctx.handle("claimLetters", claimLetters)
+	ctx.handle("shared", function(player: Player): (boolean, string?)
+		local data = ProgressService.dataOf(player)
+		if data then
+			data.shared = (data.shared or 0) + 1
+			ProgressService.markDirty(player)
+		end
+		return true, nil
+	end)
 	ctx.handle("refresh", function(player: Player): (boolean, string?)
 		ProgressService.sendState(player)
 		return true, nil

@@ -137,7 +137,7 @@ function TryOn.show(id: string): boolean
 	local name = it and it.name or (fade and fade.name) or id
 	if slot == "bow" or slot == "spear" or slot == "knife" then
 		Arms.attach(E, m, slot, id, 0)
-		AnimPlayer.play(m, "pose_salute", { seconds = 5 })
+		AnimPlayer.play(m, "pose_heart", { seconds = 5 })
 		focus(m, 5)
 	elseif slot == "pose" or slot == "emote" then
 		local clip = (it and it.clip) or id

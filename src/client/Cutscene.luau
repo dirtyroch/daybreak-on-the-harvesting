@@ -484,13 +484,16 @@ function Cutscene.play(d: any)
 	pendingBoard = nil
 	dof(true)
 	task.spawn(function()
-		local short = d.short == true
+		-- v5: Quick Trials always uses the short draw and skips the ceremony
+		local short = d.short == true or d.quick == true
 		reaping(id, d, short)
 		if not alive(id) then
 			return
 		end
 		Net.act("seenReaping")
-		ceremony(id, d)
+		if not d.quick then
+			ceremony(id, d)
+		end
 		if alive(id) then
 			stop()
 		end

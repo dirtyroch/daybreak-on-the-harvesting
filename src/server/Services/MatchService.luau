@@ -38,6 +38,11 @@ local Arms = require(Shared.Arms) :: any
 local Mastery = require(Shared.Mastery)
 local Offers = require(Shared.Offers)
 local Finishers = require(Shared.Finishers)
+local Modes = require(Shared.Logic.Modes)
+local Party = require(Shared.Logic.Party)
+local Onboarding = require(Shared.Logic.Onboarding)
+local Events = require(Shared.Logic.Events)
+local Moments = require(Shared.Logic.Moments)
 
 -- Globals handed to shared builders (Arms) so the same code runs in Lune tests.
 local E = {
@@ -94,6 +99,8 @@ export type Contender = {
 	lastGood: Vector3?,
 	speedStrikes: number,
 	lastHitBetrayal: boolean,
+	-- v5
+	veilBreaker: boolean?,
 }
 
 MatchService.state = "Lobby"
@@ -105,6 +112,9 @@ MatchService.twist = nil :: any
 MatchService.weekly = nil :: any
 MatchService.hazard = nil :: string?
 MatchService.matchNo = 0
+MatchService.mode = Modes.get(Modes.JUBILEE) -- v5: Jubilee or Quick Trials, picked per match
+MatchService.archive = false -- v5: Founders' Dawn Archive Reel match
+MatchService.party = Party.new() -- v5: friend/family parties of up to 10
 
 local queue: { Player } = {}
 local queueSince = 0
@@ -131,6 +141,8 @@ local veilCore: BasePart? = nil
 local coreAngle = 0
 local veilBroken = false
 local thrownFolder: Folder? = nil
+local veilStepDone = false
+local familyPartyAt: { [string]: number } = {} -- contender id -> party id (snapshot at match start)
 local STAMINA_RULES: Stamina.Rules = { max = Config.STAMINA_MAX, drain = Config.STAMINA_DRAIN, regen = Config.STAMINA_REGEN, resume = Config.STAMINA_RESUME }
 
 local function now(): number
@@ -166,6 +178,11 @@ end
 -- Reach partners until the final few, plus pacts.
 function MatchService.canHurt(a: Contender, b: Contender): boolean
 	if not Combat.canHurt(a.reach, b.reach, MatchService.aliveCount(), Config.ALLIES_UNTIL) then
+		return false
+	end
+	-- v5 Family Rules (private servers, on by default): the whole party is allied until 4 are left
+	local pa, pb = familyPartyAt[a.id], familyPartyAt[b.id]
+	if pa and pa == pb and MatchService.aliveCount() > Config.ALLIES_UNTIL then
 		return false
 	end
 	return Pacts.canHurt(pacts, a.id, b.id)
@@ -321,6 +338,9 @@ function MatchService.give(c: Contender, item: string): boolean
 		if def.kind == "weapon" and item == "bow" then
 			c.ammo += 4
 		end
+		if def.kind == "weapon" and c.player and MatchService.state == "Arena" then
+			ctx.Progress.onboard(c.player, "weapon")
+		end
 		if #c.inv == 1 or (def.kind == "weapon" and not Config.Items[c.inv[c.equipped] or ""]) then
 			c.equipped = #c.inv
 		end
@@ -348,7 +368,7 @@ local function skinColor(c: Contender, slot: string): string?
 end
 
 -- Private-server rules (owner with Spire VIP). Public servers always use the seeded twist.
-MatchService.psRules = { twist = "", noBetrayals = false }
+MatchService.psRules = { twist = "", noBetrayals = false, family = true }
 local function isPrivate(): boolean
 	return game.PrivateServerId ~= "" and game.PrivateServerOwnerId ~= 0
 end
@@ -414,6 +434,66 @@ local function toGallery(player: Player)
 end
 
 local endIfDone: () -> () -- assigned below
+
+-- v5: the one share-worthy moment for a finished contender (or nil), with its launch data.
+function MatchService.momentFor(c: Contender): any
+	if not c.player then
+		return nil
+	end
+	local best = true
+	local pid = Party.partyOf(MatchService.party, c.player.UserId)
+	if pid then
+		for _, uid in ipairs(MatchService.party.members[pid] or {}) do
+			local o = MatchService.contenders["u" .. uid]
+			if o and o ~= c and (o.alive or (o.place or 99) < (c.place or 99)) then
+				best = false
+			end
+		end
+	else
+		best = false
+	end
+	local m = Moments.pick({
+		place = c.place or 99,
+		knocks = c.knocks,
+		veilBreaker = c.veilBreaker,
+		encoreWon = c.encore and (c.place or 99) <= 5,
+		archive = MatchService.archive,
+		partyBest = best and MatchService.state == "Podium",
+	})
+	if not m then
+		return nil
+	end
+	return { id = m.id, title = m.title, caption = m.caption, launch = Moments.launchData(c.player.UserId, m.id), place = c.place, knocks = c.knocks }
+end
+
+-- v5: one results card per party that played: everyone's place and the party's total knockouts.
+function MatchService.sendPartyCards()
+	local seen: { [number]: boolean } = {}
+	for _, c in pairs(MatchService.contenders) do
+		local pl = c.player
+		local pid = pl and Party.partyOf(MatchService.party, pl.UserId)
+		if pid and not seen[pid] then
+			seen[pid] = true
+			local lines = {}
+			local who = {}
+			for _, uid in ipairs(MatchService.party.members[pid] or {}) do
+				local o = MatchService.contenders["u" .. uid]
+				if o and o.player then
+					table.insert(lines, { name = o.name, place = o.place or 99, knocks = o.knocks })
+					table.insert(who, o.player)
+				end
+			end
+			if #lines >= 2 then
+				local sum = Party.summary(lines)
+				for _, p in ipairs(who) do
+					if p.Parent then
+						ctx.push(p, "partyCard", { lines = sum.lines, knocks = sum.knocks, best = sum.best and sum.best.name or "" })
+					end
+				end
+			end
+		end
+	end
+end
 
 function MatchService.knockout(c: Contender, cause: string)
 	if not c.alive then
@@ -487,6 +567,7 @@ function MatchService.knockout(c: Contender, cause: string)
 			partner = c.partner ~= nil and string.sub(c.partner, 1, 1) == "u",
 			bonusStars = Twists.mod({ MatchService.weekly }, "bonusStars", 0),
 			pactKept = c.pactKept,
+			archive = MatchService.archive,
 		}
 		local result: any
 		if c.awarded and c.firstResult then
@@ -525,6 +606,7 @@ function MatchService.knockout(c: Contender, cause: string)
 			result = result,
 			autoQueue = data and data.settings.autoQueue or false,
 			preview = ctx.Purchase.previewFor(player, c.knocks),
+			moment = MatchService.momentFor(c),
 		})
 		task.delay(3.2, function()
 			if player.Parent then
@@ -556,6 +638,11 @@ function MatchService.damage(target: Contender, amount: number, attacker: Conten
 			return
 		end
 		local mult, strike = Pacts.hitMult(pacts, Config.Pacts, attacker.id, target.id, now())
+		-- v5: Stand-In bots go easier on a contender's first 3 matches (never real players)
+		if attacker.kind == "bot" and target.player then
+			local td = ctx.Progress.dataOf(target.player)
+			mult *= Onboarding.botDamageMult(td and td.stats.matches or 0)
+		end
 		amount = math.max(1, math.floor(amount * mult + 0.5))
 		target.lastHitBetrayal = strike
 		if strike then
@@ -698,6 +785,7 @@ function MatchService.eat(c: Contender, slot: number): boolean
 	end
 	pushVitals(c)
 	if c.player then
+		ctx.Progress.onboard(c.player, "eat")
 		ctx.Progress.bump(c.player, "snacks", 1)
 		ctx.push(c.player, "pep", { pep = c.pep, from = "snack" })
 	end
@@ -769,6 +857,7 @@ local function breakVeil(by: Contender)
 	for _, p in ipairs(veilPanels) do
 		p.Transparency = 0.7
 	end
+	by.veilBreaker = true
 	pushMatch("veilBroken", { by = by.name, reach = by.reach, seconds = Config.VeilBreaker.calmSeconds })
 	if by.player then
 		ctx.Progress.grant(by.player, Config.VeilBreaker.title, "You shattered the dome! Title unlocked: " .. tostring(Content.TITLES[Config.VeilBreaker.title]))
@@ -907,6 +996,7 @@ function MatchService.openCrate(c: Contender, crate: BasePart): boolean
 	end
 	c.crates += 1
 	if c.player then
+		ctx.Progress.onboard(c.player, "crate")
 		ctx.Progress.bump(c.player, "crates", 1)
 		if kind == "hub" then
 			ctx.Progress.bump(c.player, "hubloot", 1)
@@ -1229,14 +1319,48 @@ local function startPregame()
 			end
 		end
 	end
-	local humans = {}
+	-- v5: parties are never split: a party goes in whole or waits for the next match
+	local ids = {}
+	local byUser: { [number]: Player } = {}
 	for _, p in ipairs(queue) do
-		if p.Parent and #humans < Config.MATCH_SIZE then
-			table.insert(humans, p)
+		if p.Parent then
+			table.insert(ids, p.UserId)
+			byUser[p.UserId] = p
 		end
 	end
-	queue = {}
+	local humans = {}
+	for _, uid in ipairs(Party.fill(MatchService.party, ids, Config.MATCH_SIZE)) do
+		table.insert(humans, byUser[uid])
+	end
+	local left = {}
+	for _, p in ipairs(queue) do
+		if p.Parent and not table.find(humans, p) then
+			table.insert(left, p)
+		end
+	end
+	queue = left
+	if #left > 0 then
+		queueSince = now()
+	end
 	forceLaunchAt = nil
+	-- v5: Quick Trials or the full Jubilee, by majority of the queued players' picks
+	local prefs = {}
+	for _, p in ipairs(humans) do
+		local d = ctx.Progress.dataOf(p)
+		table.insert(prefs, Modes.preferred(d and d.settings.mode or "", d and d.stats.matches or 0))
+	end
+	MatchService.mode = Modes.get(Modes.pick(prefs))
+	local fest = Events.active(os.time())
+	MatchService.archive = fest ~= nil and fest.id == "founders_dawn" and Events.isArchiveMatch(MatchService.matchNo)
+	familyPartyAt = {}
+	if isPrivate() and MatchService.psRules.family then
+		for _, p in ipairs(humans) do
+			local pid = Party.partyOf(MatchService.party, p.UserId)
+			if pid then
+				familyPartyAt["u" .. p.UserId] = pid
+			end
+		end
+	end
 	local entries = {}
 	local byId: { [string]: Player } = {}
 	for _, p in ipairs(humans) do
@@ -1265,6 +1389,9 @@ local function startPregame()
 			nm = p.DisplayName
 		else
 			nm = table.remove(names, rng:NextInteger(1, #names)) or "Rowan"
+			if MatchService.archive and s.id == botIds[1] then
+				nm = "Young " .. Names.MENTOR_SHORT -- the Archive Reel: Rusty's own Trials, 25 years ago
+			end
 		end
 		MatchService.contenders[s.id] = {
 			id = s.id,
@@ -1305,11 +1432,17 @@ local function startPregame()
 	end
 	local P = Config.Pregame
 	local total = Config.pregameTotal() - (anyNew and 0 or (P.reaping - P.reapingShort))
+	local quick = not MatchService.mode.ceremony
+	if quick then
+		total = Modes.pregame(MatchService.mode, total, P.reapingShort)
+		anyNew = false
+	end
 	MatchService.state = "Pregame"
 	pacts = Pacts.new()
 	pactsEnded = false
 	trainingSeed = MatchService.matchNo * 7919 + os.time() % 100000
-	boardSent = false
+	boardSent = quick -- Quick Trials skips the training round and its board
+	veilStepDone = false
 	pregameStart = now()
 	pregameShort = not anyNew
 	stateEndsAt = now() + total
@@ -1345,9 +1478,13 @@ local function startPregame()
 			question = Content.QUESTIONS[(TimeUtil.hash(trainingSeed + p.UserId % 997) % #Content.QUESTIONS) + 1],
 			trainingSeed = trainingSeed,
 			humans = #humans,
+			quick = quick,
+			mode = MatchService.mode.name,
+			archive = MatchService.archive,
+			party = Party.size(MatchService.party, Party.partyOf(MatchService.party, p.UserId) or 0),
 		})
 	end
-	pushMatch("matchStart", { humans = #humans, bots = #botIds, twist = MatchService.twist })
+	pushMatch("matchStart", { humans = #humans, bots = #botIds, twist = MatchService.twist, mode = MatchService.mode.name, archive = MatchService.archive })
 end
 
 local function startLaunch()
@@ -1362,9 +1499,21 @@ local function startLaunch()
 		if tw.mods.gravity then
 			workspace.Gravity = 196.2 * tw.mods.gravity
 		end
-		phases = Veil.scaled(Config.VeilPhases, tw.mods.veil or 1)
+		phases = Modes.phases(MatchService.mode, Config.VeilPhases, tw.mods.veil or 1)
 	else
-		phases = Config.VeilPhases
+		phases = Modes.phases(MatchService.mode, Config.VeilPhases)
+	end
+	-- v5 Archive Reel: the broadcast goes sepia, like footage from 25 years ago
+	local cc = Lighting:FindFirstChild("ArchiveReel") :: ColorCorrectionEffect?
+	if MatchService.archive and not cc then
+		local fx = Instance.new("ColorCorrectionEffect")
+		fx.Name = "ArchiveReel"
+		fx.Saturation = -0.75
+		fx.Contrast = 0.12
+		fx.TintColor = Color3.fromRGB(255, 232, 196)
+		fx.Parent = Lighting
+	elseif not MatchService.archive and cc then
+		cc:Destroy()
 	end
 	setVeil(Config.Map.ARENA_SIZE / 2)
 	local plates = map().Arena.LiftPlates
@@ -1424,7 +1573,7 @@ local function startArena()
 	MatchService.state = "Arena"
 	arenaStart = now()
 	MatchService.t = 0
-	stateEndsAt = arenaStart + Config.HARD_CAP
+	stateEndsAt = arenaStart + Modes.cap(MatchService.mode, Config.HARD_CAP)
 	for _, c in pairs(MatchService.contenders) do
 		if c.player and c.model then
 			local hrp = c.model:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -1438,7 +1587,7 @@ local function startArena()
 	end
 	ctx.Gallery.onArenaStart()
 	ctx.Bots.onArenaStart()
-	pushMatch("arena", { size = Config.MATCH_SIZE })
+	pushMatch("arena", { size = Config.MATCH_SIZE, mode = MatchService.mode.name })
 end
 
 local function startPodium()
@@ -1517,6 +1666,7 @@ local function startPodium()
 				partner = c.partner ~= nil and string.sub(c.partner, 1, 1) == "u",
 				bonusStars = Twists.mod({ MatchService.weekly }, "bonusStars", 0),
 				pactKept = c.pactKept,
+				archive = MatchService.archive,
 			}
 			local result: any
 			if needsTopUp then
@@ -1536,10 +1686,12 @@ local function startPodium()
 				result = result,
 				preview = ctx.Purchase.previewFor(c.player, c.knocks),
 				firstWin = firstWin and Offers.firstWin(c.player.DisplayName) or nil,
+				moment = MatchService.momentFor(c),
 			})
 		end
 	end
 	pushMatch("podium", { podium = podium, winner = winner and winner.name or "", reach = winner and winner.reach or "", next = Config.PODIUM_SECONDS + Config.Matchmaking.nextMatchSeconds })
+	MatchService.sendPartyCards()
 	ctx.Gallery.onArenaEnd()
 	ctx.Bots.onArenaEnd()
 end
@@ -1547,6 +1699,10 @@ end
 local function backToLobby()
 	local players = matchHumans()
 	clearArena()
+	local cc = Lighting:FindFirstChild("ArchiveReel")
+	if cc then
+		cc:Destroy()
+	end
 	MatchService.state = "Lobby"
 	MatchService.t = 0
 	for _, p in ipairs(Players:GetPlayers()) do
@@ -1676,6 +1832,87 @@ local function invite(player: Player, userId: any): (boolean, string?)
 	ctx.toast(other, player.DisplayName .. " wants to partner up. Open Partner to accept.", "info")
 	lobbyStatus()
 	return true, "Invite sent."
+end
+
+-- ===================== v5 parties (up to 10) =====================
+local function partyPush()
+	for _, p in ipairs(Players:GetPlayers()) do
+		local s = MatchService.party
+		local pid = Party.partyOf(s, p.UserId)
+		local members = {}
+		for _, uid in ipairs(Party.membersOf(s, p.UserId)) do
+			local m = Players:GetPlayerByUserId(uid)
+			table.insert(members, { userId = uid, name = m and m.DisplayName or "?", leader = pid ~= nil and s.leader[pid] == uid, queued = m ~= nil and inQueue(m) })
+		end
+		local from = s.invites[p.UserId]
+		local fp = from and Players:GetPlayerByUserId(from)
+		ctx.push(p, "party", { members = pid and members or {}, max = Party.MAX, invite = fp and fp.DisplayName or nil, family = isPrivate() and MatchService.psRules.family })
+	end
+end
+MatchService.partyPush = partyPush
+
+local function partyInvite(player: Player, userId: any): (boolean, string?)
+	local other = type(userId) == "number" and Players:GetPlayerByUserId(userId) or nil
+	if not other then
+		return false, "They're not in this server."
+	end
+	local ok, msg = Party.invite(MatchService.party, player.UserId, other.UserId)
+	if ok then
+		ctx.toast(other, player.DisplayName .. " invited you to their party. Open Party to join.", "info")
+		partyPush()
+		return true, "Party invite sent to " .. other.DisplayName .. "."
+	end
+	return false, msg
+end
+
+local function partyAccept(player: Player): (boolean, string?)
+	local ok, msg = Party.accept(MatchService.party, player.UserId)
+	partyPush()
+	if not ok then
+		return false, msg
+	end
+	-- queue together: if anyone in the party is queued, the newcomer joins the queue too
+	for _, uid in ipairs(Party.membersOf(MatchService.party, player.UserId)) do
+		local m = Players:GetPlayerByUserId(uid)
+		if m and m ~= player and inQueue(m) and not inQueue(player) then
+			table.insert(queue, player)
+			break
+		end
+	end
+	return true, "You're in the party!"
+end
+
+local function partyLeave(player: Player): (boolean, string?)
+	Party.leave(MatchService.party, player.UserId)
+	partyPush()
+	return true, "Left the party."
+end
+
+-- The leader queues (or leaves the queue) for the whole party.
+local function partyQueue(player: Player, on: any): (boolean, string?)
+	local s = MatchService.party
+	local pid = Party.partyOf(s, player.UserId)
+	if not pid or s.leader[pid] ~= player.UserId then
+		return false, "Only the party leader can queue everyone."
+	end
+	local wasEmpty = #queue == 0
+	for _, uid in ipairs(s.members[pid]) do
+		local m = Players:GetPlayerByUserId(uid)
+		if m then
+			local i = table.find(queue, m)
+			if on ~= false and not i then
+				table.insert(queue, m)
+			elseif on == false and i then
+				table.remove(queue, i)
+			end
+		end
+	end
+	if wasEmpty and #queue > 0 then
+		queueSince = now()
+	end
+	lobbyStatus()
+	partyPush()
+	return true, on ~= false and "Party queued together." or "Party left the queue."
 end
 
 local function unpartner(player: Player): (boolean, string?)
@@ -2052,6 +2289,9 @@ function MatchService.onLeave(player: Player)
 	end
 	partnerOf[player] = nil
 	invites[player] = nil
+	Party.leave(MatchService.party, player.UserId)
+	MatchService.party.invites[player.UserId] = nil
+	task.defer(partyPush)
 	local c = MatchService.contenderOf(player)
 	if c and c.alive and MatchService.state == "Arena" then
 		MatchService.knockout(c, "left the arena")
@@ -2079,9 +2319,32 @@ function MatchService.init(c: any)
 	ctx.handle("pactSnap", pactSnap)
 	ctx.handle("sprint", sprint)
 	ctx.handle("throw", throw)
+	ctx.handle("partyInvite", partyInvite)
+	ctx.handle("partyAccept", partyAccept)
+	ctx.handle("partyLeave", partyLeave)
+	ctx.handle("partyQueue", partyQueue)
+	ctx.handle("setMode", function(player: Player, mode: any): (boolean, string?)
+		if mode ~= "" and mode ~= Modes.QUICK and mode ~= Modes.JUBILEE then
+			return false, nil
+		end
+		local d = ctx.Progress.dataOf(player)
+		if not d then
+			return false, nil
+		end
+		d.settings.mode = mode
+		ctx.Progress.markDirty(player)
+		task.defer(ctx.Progress.sendState, player)
+		return true, mode == "" and "Match type: auto." or ("Match type: " .. Modes.get(mode).name .. ".")
+	end)
 	ctx.handle("psRule", function(player: Player, key: any, value: any): (boolean, string?)
 		local owner = isPrivate() and game.PrivateServerOwnerId == player.UserId
 		local studio = game:GetService("RunService"):IsStudio()
+		-- Family Rules is free for any private-server owner (party allied until 4 are left)
+		if key == "family" and type(value) == "boolean" and (owner or studio) then
+			MatchService.psRules.family = value
+			partyPush()
+			return true, value and "Family Rules on: your party is allied until the final 4." or "Family Rules off: everyone for themselves."
+		end
 		if not (owner or studio) or not ctx.Progress.hasPass(player, "VIP") then
 			return false, "Private server rules need Spire VIP and your own private server."
 		end
@@ -2229,11 +2492,11 @@ function MatchService.start()
 						end
 						-- scheduled hazards (Finch Day doubles the flock)
 						for _, h in ipairs(Config.Hazards.scheduled) do
-							if math.floor(MatchService.t) == h.at then
+							if math.floor(MatchService.t) == Modes.at(MatchService.mode, h.at) then
 								MatchService.startHazard(h.id)
 							end
 						end
-						if MatchService.twist and MatchService.twist.mods.finches and math.floor(MatchService.t) == 450 then
+						if MatchService.twist and MatchService.twist.mods.finches and math.floor(MatchService.t) == Modes.at(MatchService.mode, 450) then
 							MatchService.startHazard("finches")
 						end
 						-- Rusty's gift at the final 8
@@ -2247,6 +2510,15 @@ function MatchService.start()
 							if low then
 								rustyGiftGiven = true
 								ctx.Gallery.dropGift(low, "sweettea", Names.MENTOR_SHORT, Content.RUSTY.gift)
+							end
+						end
+						-- v5 onboarding: still standing after the first shrink
+						if not veilStepDone and phases[1] and vt >= phases[1].at + phases[1].dur then
+							veilStepDone = true
+							for _, c in pairs(MatchService.contenders) do
+								if c.alive and c.player then
+									ctx.Progress.onboard(c.player, "veil")
+								end
 							end
 						end
 						local nextIn, target = Veil.nextShrink(vt, phases)

@@ -35,10 +35,10 @@ end
 -- Poses play once and hold the last frame (podium, Hall of Champions statues).
 -- Emotes play once (or loop a few times) and return to rest.
 Anim.CLIPS = {
-	pose_salute = { length = 1.0, loop = false, hold = true, keys = {
+	pose_heart = { length = 1.0, loop = false, hold = true, keys = {
 		K(0, {}),
-		K(0.5, { RightShoulder = { 120, 0, 40 }, RightElbow = { 120, 0, 0 }, Neck = { 8, 0, 0 } }),
-		K(1.0, { RightShoulder = { 115, 0, 45 }, RightElbow = { 125, 0, 0 }, Neck = { 10, 0, 0 }, Waist = { 4, 0, 0 } }),
+		K(0.5, { RightShoulder = { 55, 0, 35 }, RightElbow = { 105, 0, 0 }, Neck = { 8, 0, 0 } }),
+		K(1.0, { RightShoulder = { 60, 0, 40 }, RightElbow = { 115, 0, 0 }, Neck = { -6, 0, 0 }, Waist = { 4, 0, 0 } }),
 	} },
 	pose_bow = { length = 1.4, loop = false, hold = true, keys = {
 		K(0, {}),

@@ -40,7 +40,7 @@ function DefaultData.new(): any
 		seenReaping = false,
 		boost = { untilT = 0, mult = 0 },
 		receipts = {},
-		settings = { autoQueue = true, sfx = true, shortReaping = false },
+		settings = { autoQueue = true, sfx = true, shortReaping = false, mode = "" }, -- mode: "" = auto (Modes.preferred)
 		quip = 1,
 		letters = { lastDay = -1, waiting = 0, claimed = 0 }, -- sponsor letters
 		favorBank = 0, -- Favor head start from letters, spent on the next Gallery visit
@@ -56,6 +56,11 @@ function DefaultData.new(): any
 		memberMonth = -1, -- last month the Roblox Plus / Premium member gift was granted
 		dailyTen = { day = -1, seconds = 0, claimed = false }, -- Daily Ten play bonus
 		referral = { by = 0, rewarded = false, brought = 0 }, -- friend invites
+		onboarding = { done = {}, finished = false }, -- first-match checklist (Onboarding.luau)
+		comeback = { lastSeenDay = -1, homecoming = 0, catchUpTier = 0, welcomedDay = -1 }, -- Comeback.luau
+		festival = {}, -- yearly festival progress (Events.progressFor)
+		shared = 0, -- moments shared with the Roblox share sheet
+		shopOpenedOnce = false,
 		offers = { firstWinShown = false, previewsSeen = 0 }, -- calm offer bookkeeping
 	}
 end

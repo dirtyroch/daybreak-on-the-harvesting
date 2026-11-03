@@ -45,6 +45,13 @@ local Anim = require("../src/shared/Anim")
 local Mastery = require("../src/shared/Mastery")
 local Offers = require("../src/shared/Offers")
 local Season2 = require("../src/shared/Season2")
+local Modes = require("../src/shared/Logic/Modes")
+local Party = require("../src/shared/Logic/Party")
+local Onboarding = require("../src/shared/Logic/Onboarding")
+local Comeback = require("../src/shared/Logic/Comeback")
+local Events = require("../src/shared/Logic/Events")
+local Moments = require("../src/shared/Logic/Moments")
+local Funnel = require("../src/shared/Logic/Funnel")
 local roblox = require("@lune/roblox")
 
 local passed, failed = 0, 0
@@ -1099,11 +1106,13 @@ test("v4 offers: calm cards, one fade at most, nothing without a knockout", func
 end)
 test("v4 season 2 skeleton: no id clashes, tier prices, a full track", function()
 	for _, it in ipairs(Season2.ITEMS) do
-		truthy(Store.byId[it.id] == nil, it.id .. " clashes with Season 1")
+		local live = Store.byId[it.id]
+		truthy(live ~= nil and live.season == 2, it.id .. " is in the shop as a Season 2 item")
+		eq(live.price, it.price, it.id .. " price matches the plan")
 		truthy(table.find(Store.TIERS, it.price) ~= nil, it.id .. " price is a tier")
 	end
 	truthy(#Season2.TRACK >= 6 and #Season2.ITEMS >= 12)
-	eq(Season2.GRAND_PRICE, 4999)
+	eq(Season2.GRAND_PRICE, Store.bundle("high_harvest").price)
 end)
 test("v4 fades and Rusty voice: styles known, babble deterministic", function()
 	for id, f in pairs(Content.FADES) do
@@ -1141,6 +1150,251 @@ test("v4 save fields reconcile into old saves", function()
 	truthy(type(d.mastery) == "table" and type(d.dailyTen) == "table" and type(d.referral) == "table" and type(d.offers) == "table")
 	eq(d.dailyTen.claimed, false)
 	truthy(Config.DailyTen.seconds == 600 and Config.Invites.reward == "sash_torchbearer")
+end)
+
+-- ===== v5 =====
+print("v5")
+test("v5 Quick Trials: arena under 6 minutes, first shrink inside 90 s, pregame 3 s", function()
+	local q = Modes.get(Modes.QUICK)
+	local ph = Modes.phases(q, Config.VeilPhases)
+	truthy(ph[1].at <= 90, "first shrink at " .. ph[1].at)
+	local last = ph[#ph]
+	truthy(last.at + last.dur <= Modes.cap(q, Config.HARD_CAP), "Veil closes before the Quick cap")
+	truthy(Modes.cap(q, Config.HARD_CAP) <= 360, "Quick arena cap " .. Modes.cap(q, Config.HARD_CAP))
+	eq(Modes.pregame(q, 47, Config.Pregame.reapingShort), Config.Pregame.reapingShort)
+	local j = Modes.get(Modes.JUBILEE)
+	eq(Modes.cap(j, Config.HARD_CAP), Config.HARD_CAP)
+	eq(Modes.phases(j, Config.VeilPhases)[1].at, Config.VeilPhases[1].at)
+	for i = 2, #ph do
+		truthy(ph[i].at >= ph[i - 1].at + ph[i - 1].dur, "quick phases don't overlap at " .. i)
+	end
+	for _, h in ipairs(Config.Hazards.scheduled) do
+		truthy(Modes.at(q, h.at) < Modes.cap(q, Config.HARD_CAP))
+	end
+end)
+test("v5 modes: new players start in Quick Trials; the queue follows the majority", function()
+	eq(Modes.preferred("", 0), Modes.QUICK)
+	eq(Modes.preferred("", 1), Modes.QUICK)
+	eq(Modes.preferred("", 2), Modes.JUBILEE)
+	eq(Modes.preferred("jubilee", 0), Modes.JUBILEE)
+	eq(Modes.pick({ "quick", "quick", "jubilee" }), Modes.QUICK)
+	eq(Modes.pick({ "quick", "jubilee" }), Modes.JUBILEE)
+	eq(Modes.pick({}), Modes.JUBILEE)
+end)
+test("v5 party: up to 10, never split by the queue, leader hands over", function()
+	local s = Party.new()
+	for u = 2, 10 do
+		truthy(Party.invite(s, 1, u))
+		truthy(Party.accept(s, u))
+	end
+	eq(#Party.membersOf(s, 1), 10)
+	local ok = Party.invite(s, 1, 11)
+	eq(ok, false)
+	-- queue: 3 solos then the party of 10; 12 seats: party can't fit after 3 solos -> skipped whole
+	local q = { 100, 101, 102 }
+	for u = 1, 10 do
+		table.insert(q, u)
+	end
+	table.insert(q, 103)
+	local picked = Party.fill(s, q, 12)
+	eq(#picked, 4)
+	truthy(not table.find(picked, 1))
+	local picked2 = Party.fill(s, q, 48)
+	eq(#picked2, 14)
+	Party.leave(s, 1)
+	eq(s.leader[Party.partyOf(s, 2)], 2)
+	-- family rules only matter when switched on (private servers)
+	truthy(Party.canHurt(s, 2, 3, 20, 4, false))
+	truthy(not Party.canHurt(s, 2, 3, 20, 4, true))
+	truthy(Party.canHurt(s, 2, 3, 4, 4, true))
+	truthy(Party.canHurt(s, 2, 100, 20, 4, true))
+	local sum = Party.summary({ { name = "A", place = 9, knocks = 1 }, { name = "B", place = 2, knocks = 3 } })
+	eq(sum.best.name, "B")
+	eq(sum.knocks, 4)
+	-- a party of two disbands when one leaves
+	local t = Party.new()
+	Party.invite(t, 5, 6)
+	Party.accept(t, 6)
+	Party.leave(t, 6)
+	eq(Party.partyOf(t, 5), nil)
+end)
+test("v5 onboarding: five steps, any order, softer bots for 3 matches, hides after 5", function()
+	local s = Onboarding.new()
+	eq(Onboarding.current(s, 0).id, "crate")
+	eq(#Onboarding.mark(s, "eat"), 1)
+	eq(Onboarding.current(s, 0).id, "crate")
+	eq(#Onboarding.mark(s, "eat"), 0)
+	for _, e in ipairs({ "crate", "weapon", "veil", "gallery" }) do
+		Onboarding.mark(s, e)
+	end
+	truthy(s.finished)
+	eq(Onboarding.current(s, 0), nil)
+	eq(Onboarding.current(Onboarding.new(), 5), nil)
+	truthy(Onboarding.botDamageMult(0) < 1 and Onboarding.botDamageMult(3) == 1)
+	for i, st in ipairs(Onboarding.STEPS) do
+		truthy(Funnel.step(Funnel.ONBOARDING_STEPS, st.event) ~= nil, st.event .. " is a funnel step")
+		truthy(#st.tip > 10)
+	end
+end)
+test("v5 comeback: welcome after 3 days, once per return, catch-up never past a weekly pace", function()
+	local s = Comeback.new()
+	eq(Comeback.onJoin(s, 100, 2, 3), nil) -- first visit
+	eq(Comeback.onJoin(s, 101, 2, 3), nil) -- next day
+	local w = Comeback.onJoin(s, 105, 2, 3)
+	truthy(w ~= nil and w.days == 4 and not w.long)
+	eq(Comeback.onJoin(s, 105, 2, 3), nil) -- same day again
+	eq(Comeback.useMatch(s), Comeback.RENOWN_MULT)
+	Comeback.useMatch(s)
+	Comeback.useMatch(s)
+	eq(Comeback.useMatch(s), 0)
+	local w2 = Comeback.onJoin(s, 125, 5, 6)
+	truthy(w2.long and w2.catchUpTier == 20)
+	eq(Comeback.starMult(s, 6), 2)
+	eq(Comeback.starMult(s, 20), 1)
+end)
+test("v5 Founders' Dawn: 18-30 Nov every year, launch week included", function()
+	eq(Events.daysFromCivil(1970, 1, 1), 0)
+	eq(Events.daysFromCivil(2026, 11, 16) * 86400, Store.weekStart(Store.SEASON1_START_WEEK))
+	eq(Events.yearOf(Events.daysFromCivil(2026, 12, 31) * 86400 + 86399), 2026)
+	eq(Events.yearOf(Events.daysFromCivil(2027, 1, 1) * 86400), 2027)
+	local movie = Events.daysFromCivil(2026, 11, 20) * 86400 + 3600
+	eq(Events.active(movie).id, "founders_dawn")
+	eq(Events.active(Events.daysFromCivil(2026, 12, 1) * 86400), nil)
+	eq(Events.active(Events.daysFromCivil(2027, 11, 18) * 86400).id, "founders_dawn")
+	eq(Events.active(Events.daysFromCivil(2027, 11, 17) * 86400 + 86399), nil)
+	-- shop: the set is on sale in launch weeks 1-3 (16 Nov - 6 Dec), not week 4, and again next November
+	local set = Store.bundle("founders_set")
+	local W = Store.SEASON1_START_WEEK
+	for w = 0, 2 do
+		truthy(Store.bundleOnSale(set, W + w), "week " .. w + 1)
+	end
+	truthy(not Store.bundleOnSale(set, W + 3))
+	truthy(Store.bundleOnSale(set, W + 52))
+	truthy(Store.inRotation("skin_bow_founders", W + 1) and not Store.inRotation("skin_bow_founders", W + 5))
+	local ok, why = Store.canReceive(Store.offer("bundle", "founders_set"), {}, W + 5, {})
+	truthy(not ok and why:find("every year", 1, true) ~= nil)
+	eq(Store.nextWeek("skin_bow_founders", W + 5) ~= nil, true)
+	-- free festival rewards
+	local p = Events.progressFor(nil, Events.byId("founders_dawn"), 2026)
+	local got = {}
+	for d = 1, 3 do
+		for _, id in ipairs(Events.recordMatch(p, 20000 + d, d == 3)) do
+			table.insert(got, id)
+		end
+	end
+	eq(#got, 3)
+	for _, id in ipairs(got) do
+		truthy(Store.byId[id] and Store.byId[id].earned, id .. " is earned-only")
+	end
+	truthy(Events.isArchiveMatch(3) and not Events.isArchiveMatch(4))
+end)
+test("v5 share moments: one card per match, best moment wins, small launch data", function()
+	eq(Moments.pick({ place = 20, knocks = 1 }), nil)
+	eq(Moments.pick({ place = 1, knocks = 6, veilBreaker = true }).id, "win")
+	eq(Moments.pick({ place = 3, knocks = 0 }).id, "top3")
+	eq(Moments.pick({ place = 12, knocks = 5 }).id, "knocks")
+	eq(Moments.pick({ place = 5, knocks = 0, archive = true }).id, "archive")
+	local ld = Moments.launchData(1234567890, "win")
+	truthy(#ld <= 200)
+	local by, m = Moments.parse(ld)
+	eq(by, 1234567890)
+	eq(m, "win")
+	eq(Moments.parse("ref:42"), 42)
+	eq(Moments.parse("nope"), nil)
+end)
+test("v5 Season 2 shelf: drops 7-10 in weeks 10-13, collection R$1,999 is a real saving, opens with the season", function()
+	local W = Store.SEASON1_START_WEEK
+	local hh = Store.bundle("high_harvest")
+	eq(hh.price, 1999)
+	eq(#hh.items, 12)
+	truthy(Store.value(hh, nil) > hh.price, "worth " .. Store.value(hh, nil))
+	truthy(not Store.bundleOnSale(hh, W + 8))
+	truthy(Store.bundleOnSale(hh, W + 9))
+	for _, it in ipairs(Store.ITEMS) do
+		if it.season == 2 then
+			truthy(it.drop >= 7 and it.drop <= 10)
+			truthy(not Store.released(it, W + 8), it.id .. " hidden in Season 1")
+			truthy(not Store.inRotation(it.id, W + 8), it.id .. " not on the Season 1 shelf")
+		end
+	end
+	for _, id in ipairs(Store.bundle("grand_s1").items) do
+		local it = Store.byId[id]
+		truthy(not it.season and not it.event, id .. " is not Season 1")
+	end
+	eq(#Store.SCHEDULE, 13)
+	eq(Store.dropOf(W + 12), 10)
+end)
+test("v5 bundles show a value anchor; every bundle is worth more than its price", function()
+	for _, b in ipairs(Store.BUNDLES) do
+		local v, save = Store.anchor(b, nil)
+		truthy(v > b.price and save > 0, b.id)
+	end
+end)
+test("v5 guardrail words: no franchise names, salutes or protected terms in any source or doc", function()
+	local banned = { "hunger games", "panem", "%f[%a]tributes?%f[%A]", "%f[%a]district%f[%A]", "capitol", "cornucopia", "gamemaker", "game maker", "quarter quell", "mockingjay", "haymitch", "abernathy", "katniss", "everdeen", "%f[%a]salute", "three%-finger", "lionsgate", "suzanne collins" }
+	local files = walk("src", {})
+	for _, d in ipairs({ "README.md", "PUBLISHING.md" }) do
+		if fs.isFile(d) then
+			table.insert(files, d)
+		end
+	end
+	for _, path in ipairs(files) do
+		local src = fs.readFile(path):lower()
+		for _, w in ipairs(banned) do
+			truthy(not src:find(w), string.format("%s matches %q", path, w))
+		end
+	end
+	for _, it in ipairs(Store.ITEMS) do
+		local t = (it.id .. " " .. it.name .. " " .. it.desc):lower()
+		truthy(not t:find("salute", 1, true), it.id)
+	end
+end)
+test("v5 funnels: shop steps in order, sessions unique per open", function()
+	eq(Funnel.step(Funnel.SHOP_STEPS, "shop_open"), 1)
+	eq(Funnel.step(Funnel.SHOP_STEPS, "purchase"), #Funnel.SHOP_STEPS)
+	truthy(Funnel.session(1, 1) ~= Funnel.session(1, 2))
+	truthy(#Funnel.ONBOARDING_STEPS <= 100)
+end)
+test("v5 save fields reconcile into old saves", function()
+	local old = { owned = {}, settings = { autoQueue = false } }
+	local d = Reconcile.fill(old, DefaultData.new())
+	truthy(type(d.onboarding) == "table" and type(d.comeback) == "table" and type(d.festival) == "table")
+	eq(d.settings.mode, "")
+	eq(d.settings.autoQueue, false)
+	eq(d.comeback.lastSeenDay, -1)
+end)
+test("v5 every server push kind has a client listener", function()
+	local pushes: { [string]: boolean } = {}
+	local server, client = {}, {}
+	walk("src/server", server)
+	walk("src/client", client)
+	for _, f in ipairs(server) do
+		local src = fs.readFile(f)
+		for kind in src:gmatch('ctx%.push%([^,]-,%s*"(%w+)"') do
+			pushes[kind] = true
+		end
+	end
+	local heard: { [string]: boolean } = { state = true } -- "state" is handled inside Net itself
+	for _, f in ipairs(client) do
+		for kind in fs.readFile(f):gmatch('Net%.on%("(%w+)"') do
+			heard[kind] = true
+		end
+	end
+	for kind in pairs(pushes) do
+		truthy(heard[kind], "no client listener for push '" .. kind .. "'")
+	end
+end)
+test("v5 shop funnel and festival shelf: event items stay off the regular shelves", function()
+	local src = fs.readFile("src/server/Services/PurchaseService.luau")
+	truthy(src:find("not it.earned and not it.event", 1, true) ~= nil)
+	for _, step in ipairs({ "shop_open", "item_view", "try_on" }) do
+		truthy(fs.readFile("src/client/Panels.luau"):find('"shopStep", "' .. step .. '"', 1, true) ~= nil, step)
+	end
+	for _, it in ipairs(Store.ITEMS) do
+		if it.event then
+			eq(it.rot, false)
+		end
+	end
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

@@ -1,16 +1,15 @@
 --!strict
 --[[
-	Season2.luau: the skeleton for Season 2, "High Harvest". Nothing here is on sale or live;
-	it's the authored plan so the team can ship a season without starting from a blank page.
-	Tests check it is complete and that none of its ids clash with Season 1.
-
-	Turn it on by moving the ITEMS into Store.luau with `drop = n` and a new SCHEDULE.
+	Season2.luau: the plan for Season 2, "High Harvest". Its 12 shop items are already in
+	Store.luau (season = 2, drops 7-10) on a fixed schedule from Season 1 week 10, with the
+	R$ 1,999 High Harvest Collection. The track, weekly rules and twists below are still to build.
+	Tests check the two lists agree.
 ]]
 local Season2 = {}
 
 Season2.NAME = "High Harvest"
 Season2.WEEKS = 10
-Season2.STARTS_AFTER_S1_WEEKS = 10 -- Season 2 week 1 = Store.SEASON1_START_WEEK + 10
+Season2.STARTS_AFTER_S1_WEEKS = 9 -- Season 2 week 1 = Season 1 week 10 (Store.SEASON2_WEEK)
 
 -- Season Track: 30 tiers, cosmetics only. free = everyone, club = Patron Club.
 Season2.TRACK = {
@@ -38,7 +37,7 @@ Season2.ITEMS = {
 	{ id = "banner_s2_sheaf", name = "Sheaf Banner", slot = "banner", price = 99, drop = 4 },
 	{ id = "fade_s2_fireflies", name = "Firefly Field", slot = "fade", price = 299, drop = 4 },
 }
-Season2.GRAND_PRICE = 4999 -- a Season 2 Grand Collection, built the same way as grand_s1
+Season2.GRAND_PRICE = 1999 -- the High Harvest Collection (Store bundle high_harvest): 12 items worth R$ 2,488
 
 -- New weekly rules and twists to author (names and one-line intent).
 Season2.WEEKLY_RULES = {

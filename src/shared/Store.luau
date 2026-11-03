@@ -19,6 +19,13 @@
 ]]
 local Store = {}
 
+local Events: any
+if typeof(script) == "Instance" then
+	Events = require((script :: any).Parent.Logic.Events) :: any
+else
+	Events = (require :: any)("./Logic/Events")
+end
+
 export type Item = {
 	id: string,
 	name: string,
@@ -35,8 +42,10 @@ export type Item = {
 	drop: number?, -- weekly drop number (1..6): joins the shop that week of Season 1, then rotates
 	earned: boolean?, -- never sold: first win, member monthly, Patron Club, invites
 	clip: string?, -- Anim.CLIPS key for poses/emotes when it differs from the id
+	season: number?, -- 2 = Season 2 (High Harvest); its drops (7-10) start in season week 10
+	event: string?, -- yearly festival id (Events.luau): on sale only during that festival
 }
-export type Bundle = { id: string, name: string, price: number, icon: string, desc: string, items: { string }, once: boolean? }
+export type Bundle = { id: string, name: string, price: number, icon: string, desc: string, items: { string }, once: boolean?, event: string?, fromWeek: number? }
 
 -- One developer product per price point. Covers R$25 to R$4,999.
 Store.TIERS = { 25, 49, 99, 149, 199, 299, 399, 499, 799, 1299, 1999, 4999 }
@@ -67,7 +76,7 @@ local items: { Item } = {
 	{ id = "fade_aurora", name = "Aurora Fade", cat = "Fades", slot = "fade", price = 199, icon = "🌌", color = "#7DFFB2", desc = "Green and violet ribbons of light.", rot = true },
 	{ id = "fade_starfall", name = "Starfall Fade", cat = "Fades", slot = "fade", price = 299, icon = "🌠", color = "#FFF1B8", desc = "A shower of tiny falling stars.", rot = true },
 	-- Victory poses: played on the podium and when you win (everyone sees them).
-	{ id = "pose_salute", name = "Reach Salute", cat = "Poses", slot = "pose", price = 49, icon = "🫡", color = "#E8D9B5", desc = "A proud salute to your Reach on the podium.", rot = false, anim = 0 },
+	{ id = "pose_heart", name = "Hand on Heart", cat = "Poses", slot = "pose", price = 49, icon = "🤍", color = "#E8D9B5", desc = "A hand on your heart for your Reach on the podium.", rot = false, anim = 0 },
 	{ id = "pose_bow", name = "Curtain Bow", cat = "Poses", slot = "pose", price = 99, icon = "🙇", color = "#FFD36B", desc = "A theatrical bow for the Gallery.", rot = false, anim = 0 },
 	{ id = "pose_lantern", name = "Lantern Raise", cat = "Poses", slot = "pose", price = 199, icon = "🏮", color = "#FFC86B", desc = "Hold a lantern high as the crowd cheers.", rot = true, anim = 0 },
 	{ id = "pose_crown", name = "Wheat Crown Toss", cat = "Poses", slot = "pose", price = 299, icon = "🌾", color = "#F2D27A", desc = "Toss a wheat crown into the air and catch it.", rot = true, anim = 0 },
@@ -121,6 +130,26 @@ local items: { Item } = {
 	{ id = "tag_regent", name = "Regent Nametag", cat = "Nametags", slot = "nametag", price = 199, icon = "🏷️", color = "#FFB347", desc = "Your name in sunset gold.", rot = true, drop = 6 },
 	{ id = "fade_sunburst", name = "Sunburst", cat = "Fades", slot = "fade", price = 299, icon = "🌞", color = "#FFB347", desc = "Knockouts flare out in rings of sunrise light.", rot = true, drop = 6 },
 
+	-- ===== Season 2: High Harvest (season = 2). Four drops, released in season weeks 10-13. =====
+	{ id = "skin_bow_s2_orchard", name = "Orchard Bow", cat = "Arms", slot = "bow", price = 299, icon = "🏹", color = "#C8553D", desc = "Apple-wood limbs and a red-gold streak. Same stats.", rot = true, drop = 7, season = 2 },
+	{ id = "fade_s2_windmill", name = "Windmill Sails", cat = "Fades", slot = "fade", price = 199, icon = "🌬️", color = "#E8D9B5", desc = "Knockouts spin away on four little windmill sails.", rot = true, drop = 7, season = 2 },
+	{ id = "emote_s2_scythe", name = "Scythe Spin", cat = "Emotes", slot = "emote", price = 99, icon = "🌾", color = "#D9B45A", desc = "Twirl a wooden harvest scythe over your shoulder.", rot = true, drop = 7, season = 2, anim = 0, clip = "emote_harvest" },
+	{ id = "skin_spear_s2_pitch", name = "Pitchfork Spear", cat = "Arms", slot = "spear", price = 399, icon = "🗡️", color = "#9C6B3E", desc = "A three-tined iron head on an oak shaft. Same stats.", rot = true, drop = 8, season = 2 },
+	{ id = "pose_s2_harvestking", name = "Harvest King", cat = "Poses", slot = "pose", price = 299, icon = "👑", color = "#E9C46A", desc = "Sit on a throne of wheat sheaves on the podium.", rot = true, drop = 8, season = 2, anim = 0, clip = "pose_crown" },
+	{ id = "tag_s2_copper", name = "Copper Sheaf Nametag", cat = "Nametags", slot = "nametag", price = 149, icon = "🏷️", color = "#C47A3A", desc = "Your name in burnished copper.", rot = true, drop = 8, season = 2 },
+	{ id = "skin_knife_s2_sickle", name = "Moon Sickle", cat = "Arms", slot = "knife", price = 199, icon = "🔪", color = "#CFD8E3", desc = "A crescent blade with a pale moon shine. Same stats.", rot = true, drop = 9, season = 2 },
+	{ id = "wrap_s2_hayloft", name = "Hayloft Wrap", cat = "Wraps", slot = "wrap", price = 99, icon = "🎁", color = "#E2C27A", desc = "Your gifts float down in a little hay basket.", rot = true, drop = 9, season = 2 },
+	{ id = "parade_s2_scarecrow", name = "Scarecrow Parade Coat", cat = "Parade", slot = "parade", price = 199, icon = "🧥", color = "#B08850", desc = "A patched field coat with straw at the cuffs.", rot = true, drop = 9, season = 2 },
+	{ id = "rusty_s2_farmer", name = "Rusty: Old Farmer", cat = "Rusty", slot = "rusty", price = 149, icon = "🧑‍🌾", color = "#9C6B3E", desc = "Rusty swaps the thermos for a straw hat and farm sayings.", rot = true, drop = 10, season = 2, sound = 0 },
+	{ id = "banner_s2_sheaf", name = "Sheaf Banner", cat = "Reach", slot = "banner", price = 99, icon = "🚩", color = "#E9C46A", desc = "A wheat-sheaf banner behind your name and on the podium.", rot = true, drop = 10, season = 2 },
+	{ id = "fade_s2_fireflies", name = "Firefly Field", cat = "Fades", slot = "fade", price = 299, icon = "✨", color = "#D7F27A", desc = "Knockouts drift away as a cloud of fireflies.", rot = true, drop = 10, season = 2 },
+
+	-- ===== Founders' Dawn (18-30 November, every year): on sale during the festival =====
+	{ id = "skin_bow_founders", name = "Founders' Bow", cat = "Arms", slot = "bow", price = 199, icon = "🏹", color = "#F4C27A", desc = "Pale birch wrapped in festival ribbon, with a dawn-gold streak. Same stats.", rot = false, event = "founders_dawn" },
+	{ id = "pose_first_sunrise", name = "First Sunrise", cat = "Poses", slot = "pose", price = 199, icon = "🌄", color = "#FFB38A", desc = "Turn to the horizon as the podium lights up gold.", rot = false, event = "founders_dawn", anim = 0, clip = "pose_lantern" },
+	{ id = "wrap_s_festival", name = "Festival Lantern Wrap", cat = "Wraps", slot = "wrap", price = 99, icon = "🏮", color = "#FF9A5C", desc = "Your gifts float down under a string of festival lanterns.", rot = false, event = "founders_dawn" },
+	{ id = "parade_dawn_coat", name = "Dawn Festival Coat", cat = "Parade", slot = "parade", price = 149, icon = "🧥", color = "#FFC86B", desc = "A sunrise-orange coat with a gold lantern pin for the parade.", rot = false, event = "founders_dawn" },
+
 	-- ===== Earned only (never sold) =====
 	{ id = "pose_firstlight", name = "First Light", cat = "Poses", slot = "pose", price = 0, icon = "🌅", color = "#FFD36B", desc = "Earned with your first win. Raise the dawn on the podium.", rot = false, earned = true, anim = 0 },
 	{ id = "emote_patron", name = "Patron's Flourish", cat = "Emotes", slot = "emote", price = 0, icon = "📜", color = "#C9A04E", desc = "A Patron Club thank-you: a sweeping courtly bow.", rot = false, earned = true, anim = 0 },
@@ -129,6 +158,10 @@ local items: { Item } = {
 	{ id = "wrap_member_silver", name = "Member Silver Wrap", cat = "Wraps", slot = "wrap", price = 0, icon = "➕", color = "#D7E6EE", desc = "A monthly thank-you for Roblox Plus members.", rot = false, earned = true },
 	{ id = "banner_member_spire", name = "Member Spire Banner", cat = "Reach", slot = "banner", price = 0, icon = "➕", color = "#BFE7FF", desc = "A monthly thank-you for Roblox Plus members.", rot = false, earned = true },
 	{ id = "emote_member_cheer", name = "Member Cheer", cat = "Emotes", slot = "emote", price = 0, icon = "➕", color = "#FFE9A8", desc = "A monthly thank-you for Roblox Plus members.", rot = false, earned = true, anim = 0, clip = "emote_clap" },
+	{ id = "banner_founders_lantern", name = "Founders' Lantern Banner", cat = "Reach", slot = "banner", price = 0, icon = "🏮", color = "#FFC86B", desc = "Free for playing 3 matches during Founders' Dawn.", rot = false, earned = true },
+	{ id = "tag_dawn_ribbon", name = "Dawn Ribbon Nametag", cat = "Nametags", slot = "nametag", price = 0, icon = "🎗️", color = "#FFB38A", desc = "Free for playing on 3 different days of Founders' Dawn.", rot = false, earned = true },
+	{ id = "fade_archive_reel", name = "Archive Reel", cat = "Fades", slot = "fade", price = 0, icon = "🎞️", color = "#C9A97A", desc = "Free for a top 5 in an Archive Reel match. Knockouts flicker out like old film.", rot = false, earned = true },
+	{ id = "sash_homecoming", name = "Homecoming Sash", cat = "Parade", slot = "parade", price = 0, icon = "🏡", color = "#E8D9B5", desc = "Free for finishing your first five matches. Welcome to the Trials.", rot = false, earned = true },
 }
 
 -- Free monthly cosmetic for Roblox Plus (and legacy Premium) members: a fixed list by month,
@@ -177,9 +210,14 @@ Store.BUNDLES = {
 	{ id = "arms_locker", name = "Complete Arms Locker", price = 1299, icon = "⚔️", desc = "All 10 weapon skins in this season's shop.", items = { "skin_bow_ashen", "skin_bow_gilded", "skin_bow_mirror", "skin_bow_frost", "skin_bow_regent", "skin_spear_ashen", "skin_spear_ember", "skin_spear_lake", "skin_knife_copper", "skin_knife_night" } },
 	{ id = "spire_collection", name = "Spire Collection", price = 1999, icon = "🏛️", desc = "Every fade, pose, emote and gift wrap in this season's shop.", items = {
 		"fade_ember", "fade_veil", "fade_ash", "fade_aurora", "fade_starfall",
-		"pose_salute", "pose_bow", "pose_lantern", "pose_crown", "pose_regent",
+		"pose_heart", "pose_bow", "pose_lantern", "pose_crown", "pose_regent",
 		"emote_tip", "emote_toast", "emote_twirl", "emote_lantern",
 		"wrap_gold", "wrap_lantern", "wrap_meadow", "wrap_star",
+	} },
+	{ id = "founders_set", name = "Founders' Dawn Set", price = 499, icon = "🌄", event = "founders_dawn", desc = "Founders' Bow, First Sunrise, Festival Lantern Wrap and Dawn Festival Coat. In the shop during Founders' Dawn, back every November.", items = { "skin_bow_founders", "pose_first_sunrise", "wrap_s_festival", "parade_dawn_coat" } },
+	{ id = "high_harvest", name = "High Harvest Collection", price = 1999, icon = "🌾", fromWeek = 10, desc = "All 12 Season 2 items, including drops that haven't arrived yet (they unlock in your Locker right away).", items = {
+		"skin_bow_s2_orchard", "fade_s2_windmill", "emote_s2_scythe", "skin_spear_s2_pitch", "pose_s2_harvestking", "tag_s2_copper",
+		"skin_knife_s2_sickle", "wrap_s2_hayloft", "parade_s2_scarecrow", "rusty_s2_farmer", "banner_s2_sheaf", "fade_s2_fireflies",
 	} },
 } :: { Bundle }
 
@@ -189,7 +227,7 @@ Store.BUNDLES = {
 do
 	local all = {}
 	for _, it in ipairs(items) do
-		if not it.earned then
+		if not it.earned and not it.season and not it.event then
 			table.insert(all, it.id)
 		end
 	end
@@ -203,6 +241,30 @@ function Store.bundle(id: string): Bundle?
 		end
 	end
 	return nil
+end
+
+-- Festival and Season 2 bundles are only on the shelf in their weeks.
+function Store.bundleOnSale(b: Bundle, week: number): (boolean, string?)
+	if b.event then
+		if Events.weekOverlaps(b.event, Store.weekStart(week), Store.WEEK) then
+			return true, nil
+		end
+		local e = Events.byId(b.event)
+		return false, "In the shop during " .. (if e then e.name else "its festival") .. ", every year."
+	end
+	if b.fromWeek then
+		local rel = week - Store.SEASON1_START_WEEK + 1
+		if rel < b.fromWeek then
+			return false, string.format("Opens with Season 2 in %d week%s.", b.fromWeek - rel, b.fromWeek - rel == 1 and "" or "s")
+		end
+	end
+	return true, nil
+end
+
+-- What a bundle's items cost one by one, for the "R$ X of items for R$ Y" line.
+function Store.anchor(b: Bundle, owned: { [string]: any }?): (number, number)
+	local v = Store.value(b, owned)
+	return v, math.max(0, v - b.price)
 end
 
 function Store.value(b: Bundle, owned: { [string]: any }?): number
@@ -263,7 +325,7 @@ end
 -- 4-9 each add one 3-item drop next to 3 returning items. After week 9 every rotating item,
 -- drops included, cycles on the fixed schedule in Store.rotation.
 Store.SEASON1_START_WEEK = 2967 -- Monday 16 Nov 2026 00:00 UTC
-Store.DROP_NAMES = { "Harvest Moon", "Wheatsheaf", "Comet Night", "Lantern Festival", "Gallery Gala", "Regent's Return" }
+Store.DROP_NAMES = { "Harvest Moon", "Wheatsheaf", "Comet Night", "Lantern Festival", "Gallery Gala", "Regent's Return", "Orchard", "Pitchfork Fair", "Moon Field", "Firefly Night" }
 Store.SCHEDULE = {
 	{ "skin_bow_mirror", "fade_ash", "pose_lantern", "emote_twirl", "wrap_meadow", "tag_aurora" },
 	{ "skin_spear_lake", "fade_aurora", "pose_crown", "emote_lantern", "wrap_star", "rusty_coach" },
@@ -274,7 +336,13 @@ Store.SCHEDULE = {
 	{ "skin_knife_lantern", "pose_moon", "parade_lantern", "emote_lantern", "wrap_star", "rusty_coach" },
 	{ "fade_petals", "wrap_gala", "rusty_gala", "skin_bow_frost", "skin_knife_night", "fade_starfall" },
 	{ "skin_spear_regent", "tag_regent", "fade_sunburst", "skin_bow_regent", "pose_regent", "parade_regal" },
+	-- Season 2 (High Harvest) starts in week 10: one drop a week next to 3 returning items.
+	{ "skin_bow_s2_orchard", "fade_s2_windmill", "emote_s2_scythe", "skin_bow_harvest", "pose_reaper", "fade_comet" },
+	{ "skin_spear_s2_pitch", "pose_s2_harvestking", "tag_s2_copper", "skin_spear_wheat", "pose_moon", "wrap_gala" },
+	{ "skin_knife_s2_sickle", "wrap_s2_hayloft", "parade_s2_scarecrow", "skin_bow_comet", "fade_petals", "tag_wheat" },
+	{ "rusty_s2_farmer", "banner_s2_sheaf", "fade_s2_fireflies", "skin_spear_regent", "fade_sunburst", "emote_harvest" },
 }
+Store.SEASON2_WEEK = 10 -- season week the High Harvest shelf opens
 
 -- Which Season 1 week (1-based) a shop week is, or nil outside the authored weeks.
 function Store.seasonWeek(week: number): number?
@@ -333,6 +401,9 @@ function Store.inRotation(id: string, week: number): boolean
 	if not it then
 		return false
 	end
+	if it.event then
+		return Events.weekOverlaps(it.event, Store.weekStart(week), Store.WEEK)
+	end
 	if not it.rot then
 		return true
 	end
@@ -346,7 +417,9 @@ end
 
 -- The next week (>= week) an item is on sale. Always-on items return `week`.
 function Store.nextWeek(id: string, week: number): number?
-	for w = week, week + Store.cycleWeeks() + #Store.SCHEDULE + 1 do
+	local it = Store.byId[id]
+	local horizon = if it and it.event then 54 else Store.cycleWeeks() + #Store.SCHEDULE + 1
+	for w = week, week + horizon do
 		if Store.inRotation(id, w) then
 			return w
 		end
@@ -400,6 +473,10 @@ function Store.canReceive(o: Offer, owned: { [string]: any }, week: number, flag
 	local b = Store.bundle(o.id)
 	if not b then
 		return false, "Not found."
+	end
+	local okWeek, why = Store.bundleOnSale(b, week)
+	if not okWeek then
+		return false, why
 	end
 	if b.once and flags and flags["bundle:" .. b.id] then
 		return false, "One per account."

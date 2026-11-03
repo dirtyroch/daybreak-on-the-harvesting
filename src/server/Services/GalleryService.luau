@@ -337,6 +337,7 @@ local function gift(player: Player, targetId: any, giftId: any): (boolean, strin
 	lastGift[targetId] = now()
 	GalleryService.dropGift(c, g.item, player.DisplayName, nil, wrapOf(player))
 	ctx.Progress.bump(player, "gifts", 1)
+	ctx.Progress.onboard(player, "gallery")
 	local pd = ctx.Progress.dataOf(player)
 	if pd then
 		pd.stats.gifts += 1
@@ -357,6 +358,7 @@ local function vote(player: Player, kind: any, option: any): (boolean, string?)
 	if not Vote.cast(b, tostring(player.UserId), option) then
 		return false, nil
 	end
+	ctx.Progress.onboard(player, "gallery")
 	if first then
 		spectators[player].votes += 1
 		ctx.Progress.bump(player, "votes", 1)
@@ -372,7 +374,7 @@ function GalleryService.onArenaStart()
 	inAir = 0
 	hazardBallot = nil
 	encoreBallot = nil
-	nextHazardVote = Config.Hazards.voteFirstAt
+	nextHazardVote = math.floor(Config.Hazards.voteFirstAt * ctx.Match.mode.pace)
 	encoresLeft = math.floor(Twists.mod({ ctx.Match.weekly }, "encores", 1))
 end
 
@@ -426,7 +428,7 @@ local function tick()
 		hazardBallot = nil
 		M.startHazard(winner)
 	elseif not hazardBallot and t >= nextHazardVote and next(spectators) ~= nil then
-		nextHazardVote = t + Config.Hazards.voteEvery
+		nextHazardVote = t + math.max(45, math.floor(Config.Hazards.voteEvery * M.mode.pace))
 		local opts = {}
 		for _, card in ipairs(Content.HAZARD_CARDS) do
 			table.insert(opts, card.id)
@@ -444,7 +446,7 @@ local function tick()
 		if c then
 			M.revive(c)
 		end
-	elseif not encoreBallot and encoresLeft > 0 and t >= E.at + (1 - encoresLeft) * 120 and M.aliveCount() >= E.minAlive then
+	elseif not encoreBallot and encoresLeft > 0 and t >= (E.at + (1 - encoresLeft) * 120) * M.mode.pace and M.aliveCount() >= E.minAlive then
 		local out = {}
 		for _, c in pairs(M.contenders) do
 			if not c.alive and c.place and not c.encore then

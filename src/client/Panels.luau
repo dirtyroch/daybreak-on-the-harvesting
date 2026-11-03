@@ -156,6 +156,7 @@ end
 
 local function openConfirm(o: any, store: any)
 	closeConfirm()
+	task.spawn(Net.act, "shopStep", "item_view")
 	local c = UI.frame({ BackgroundColor3 = T.bg, BackgroundTransparency = 0.15, Size = UDim2.fromScale(1, 1), ZIndex = 20, Parent = win })
 	confirm = c
 	UI.corner(c, 14)
@@ -217,6 +218,7 @@ local function itemCard(parent: Instance, it: any, order: number, store: any)
 	UI.label(it.name, { Position = UDim2.new(0, 0, 0, 52), Size = UDim2.new(1, 0, 0, 20), TextSize = 14, TextXAlignment = Enum.TextXAlignment.Center, Parent = f })
 	if not it.owned and TryOn.canTry(it.id) then
 		UI.button("👁 Try", T.blue, { Position = UDim2.new(0, 0, 1, -64), Size = UDim2.new(1, 0, 0, 26), TextSize = 12, TextColor3 = T.text, Parent = f }, function()
+			task.spawn(Net.act, "shopStep", "try_on")
 			Panels.close()
 			TryOn.show(it.id)
 		end)
@@ -303,6 +305,29 @@ builders.shop = function(s: any)
 				openConfirm({ kind = "bundle", id = st.id, name = st.name, icon = st.icon, price = st.price, desc = st.desc, once = true }, store)
 			end)
 		end
+		-- v5: the yearly festival shelf and its set (value shown plainly; it returns every year)
+		if store.festival then
+			order += 1
+			heading("🏮 " .. store.festival.name, order)
+			order += 1
+			note(store.festival.blurb .. " Festival items come back every year at the same time.", order)
+			order += 1
+			local fg = grid(order)
+			for i, it in ipairs(store.festival.items) do
+				itemCard(fg, it, i, store)
+			end
+			for _, b in ipairs(store.bundles) do
+				if b.event and b.canBuy then
+					order += 1
+					local f = row(70, order)
+					UI.label(b.icon .. " " .. b.name, { Size = UDim2.new(1, -150, 0, 24), TextSize = 17, TextColor3 = T.gold, Parent = f })
+					UI.label(string.format("%d items · R$ %d on their own · R$ %d less as a set", b.count, b.missing, b.saving or 0), { Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, -150, 0, 32), TextSize = 13, Font = T.body, TextColor3 = T.dim, Parent = f })
+					UI.button("R$ " .. b.price, T.gold, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 120, 0, 38), TextSize = 16, Parent = f }, function()
+						openConfirm({ kind = "bundle", id = b.id, name = b.name, icon = b.icon, price = b.price, desc = b.desc, once = b.once }, store)
+					end)
+				end
+			end
+		end
 		-- v4: next week's names, so players can plan (no countdowns, no "last chance")
 		if store.upcoming and #store.upcoming > 0 then
 			order += 1
@@ -356,7 +381,7 @@ builders.shop = function(s: any)
 			order += 1
 			local f = row(70, order)
 			UI.label(b.icon .. " " .. b.name, { Size = UDim2.new(1, -150, 0, 24), TextSize = 17, Parent = f })
-			UI.label(string.format("%d items · worth R$ %d · you're missing R$ %d of it", b.count, b.value, b.missing), { Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, -150, 0, 32), TextSize = 13, Font = T.body, TextColor3 = T.dim, Parent = f })
+			UI.label(string.format("%d items · R$ %d of them you don't own · R$ %d less as a set", b.count, b.missing, b.saving or 0), { Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, -150, 0, 32), TextSize = 13, Font = T.body, TextColor3 = T.dim, Parent = f })
 			UI.button(b.canBuy and ("R$ " .. b.price) or (b.why or "Not now"), b.canBuy and T.gold or T.card, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 140, 0, 38), TextSize = 13, TextColor3 = b.canBuy and T.dark or T.text, Parent = f }, function()
 				if b.canBuy then
 					openConfirm({ kind = "bundle", id = b.id, name = b.name, icon = b.icon, price = b.price, desc = b.desc, once = b.once }, store)
@@ -627,20 +652,95 @@ builders.settings = function(s: any)
 			Net.act("setting", o.key, not on)
 		end)
 	end
+	-- v5: match type. Auto = Quick Trials for your first 2 matches, then the full Jubilee.
+	local modes = { { id = "", text = "Auto" }, { id = "quick", text = "Quick" }, { id = "jubilee", text = "Full" } }
+	local f = row(48, #opts + 1)
+	UI.label("Match type (Quick Trials ≈ 5 min)", { Size = UDim2.new(1, -300, 1, 0), TextSize = 17, Font = T.body, Parent = f })
+	local box = UI.frame({ BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 290, 0, 34), Parent = f })
+	UI.list(box, Enum.FillDirection.Horizontal, 6, Enum.HorizontalAlignment.Right)
+	local cur = s.settings.mode or ""
+	for i, m in ipairs(modes) do
+		UI.button(m.text, cur == m.id and T.gold or T.card, { LayoutOrder = i, Size = UDim2.new(0, 90, 0, 34), TextColor3 = cur == m.id and T.dark or T.text, Parent = box }, function()
+			Net.act("setMode", m.id)
+		end)
+	end
+end
+
+local partyState: any = nil
+
+local function partySection(start: number): number
+	local ps = partyState or { members = {}, max = 10 }
+	local n = start
+	heading(string.format("👨‍👩‍👧 Party (%d/%d)", #ps.members, ps.max or 10), n)
+	n += 1
+	note("Parties of up to 10 always land in the same match. In a private server, Family Rules keeps your party allied until the final 4.", n)
+	if ps.invite then
+		n += 1
+		local f = row(48, n)
+		UI.label(ps.invite .. " invited you to their party", { Size = UDim2.new(1, -130, 1, 0), TextSize = 16, Parent = f })
+		UI.button("Join", T.green, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 120, 0, 34), Parent = f }, function()
+			Net.act("partyAccept")
+		end)
+	end
+	local me = Players.LocalPlayer.UserId
+	local inParty: { [number]: boolean } = {}
+	local iLead = false
+	for _, m in ipairs(ps.members) do
+		inParty[m.userId] = true
+		if m.userId == me and m.leader then
+			iLead = true
+		end
+		n += 1
+		local f = row(40, n)
+		UI.label((m.leader and "👑 " or "• ") .. m.name .. (m.queued and "  · queued" or ""), { Size = UDim2.new(1, 0, 1, 0), TextSize = 16, Font = T.body, Parent = f })
+	end
+	if #ps.members > 0 then
+		n += 1
+		local f = row(48, n)
+		UI.list(f, Enum.FillDirection.Horizontal, 8)
+		if iLead then
+			UI.button("Queue the party", T.gold, { Size = UDim2.new(0, 170, 0, 36), TextColor3 = T.dark, Parent = f }, function()
+				Net.act("partyQueue", true)
+			end)
+		end
+		UI.button("Leave party", T.red, { Size = UDim2.new(0, 140, 0, 36), Parent = f }, function()
+			Net.act("partyLeave")
+		end)
+		if ps.family ~= nil and Net.state and Net.state.store and Net.state.store.psOwner then
+			UI.button("Family Rules: " .. (ps.family and "ON" or "OFF"), ps.family and T.green or T.card, { Size = UDim2.new(0, 180, 0, 36), TextColor3 = T.text, Parent = f }, function()
+				Net.act("psRule", "family", not ps.family)
+			end)
+		end
+	end
+	if #ps.members < (ps.max or 10) then
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p.UserId ~= me and not inParty[p.UserId] then
+				n += 1
+				local f = row(44, n)
+				UI.label(p.DisplayName, { Size = UDim2.new(1, -130, 1, 0), TextSize = 16, Font = T.body, Parent = f })
+				UI.button("Add to party", T.blue, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 120, 0, 32), TextSize = 13, Parent = f }, function()
+					Net.act("partyInvite", p.UserId)
+				end)
+			end
+		end
+	end
+	return n + 1
 end
 
 builders.partner = function(_s: any)
-	title.Text = "👥 Partner"
-	note("Queue with a partner: you'll share a " .. Names.REGION .. ", start side by side, and gifts to each other cost less. Invite someone; if they invite you back, you're partners.", 0)
+	title.Text = "👥 Party & Partner"
+	local base = partySection(100)
+	heading("🤝 Partner (one person)", base)
+	note("Queue with a partner: you'll share a " .. Names.REGION .. ", start side by side, and gifts to each other cost less. Invite someone; if they invite you back, you're partners.", base + 1)
 	local l = Hud.lobby
 	if l and l.partner then
-		local f = row(48, 1)
+		local f = row(48, base + 2)
 		UI.label("Partnered with " .. l.partner, { Size = UDim2.new(1, -130, 1, 0), TextSize = 17, Parent = f })
 		UI.button("Split up", T.red, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 120, 0, 34), Parent = f }, function()
 			Net.act("unpartner")
 		end)
 	end
-	local n = 1
+	local n = base + 2
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= Players.LocalPlayer then
 			n += 1
@@ -652,8 +752,8 @@ builders.partner = function(_s: any)
 			end)
 		end
 	end
-	if n == 1 then
-		note("Nobody else is here yet. Invite a friend to the experience!", 2)
+	if n == base + 2 then
+		note("Nobody else is here yet. Invite a friend to the experience!", base + 3)
 	end
 end
 
@@ -677,6 +777,9 @@ function Panels.open(id: string)
 	id = ALIAS[id] or id
 	if not builders[id] then
 		return
+	end
+	if id == "shop" and current ~= "shop" then
+		task.spawn(Net.act, "shopStep", "shop_open")
 	end
 	current = id
 	win.Visible = true
@@ -745,6 +848,12 @@ function Panels.mount(parent: Frame)
 	body = UI.new("ScrollingFrame", { BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.new(0, 0, 0, 44), Size = UDim2.new(1, 0, 1, -44), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 6, ScrollBarImageColor3 = T.gold, Parent = win })
 	UI.list(body, nil, 6)
 	Net.changed.Event:Connect(Panels.refresh)
+	Net.on("party", function(d)
+		partyState = d
+		if current == "partner" then
+			Panels.refresh()
+		end
+	end)
 	Net.on("lobby", function()
 		if current == "partner" then
 			Panels.refresh()

@@ -38,7 +38,7 @@ for t = 1, SeasonTrack.TIERS do
 	elseif t % 3 == 1 then
 		free = { kind = "renown", id = "renown", name = "+150 Renown", amount = 150 }
 	else
-		free = { kind = "emote", id = "emote_" .. t, name = "Emote: " .. ({ "Bow", "Salute", "Wave", "Cheer", "Shrug", "Dance", "Twirl", "Clap", "Point", "Flex" })[(t // 3) % 10 + 1] }
+		free = { kind = "emote", id = "emote_" .. t, name = "Emote: " .. ({ "Bow", "Nod", "Wave", "Cheer", "Shrug", "Dance", "Twirl", "Clap", "Point", "Flex" })[(t // 3) % 10 + 1] }
 	end
 	local pname = PREMIUM_COSMETICS[math.min(#PREMIUM_COSMETICS, (t + 1) // 2)]
 	local premium: Reward = { kind = "cosmetic", id = id(pname) .. "_" .. t, name = pname }

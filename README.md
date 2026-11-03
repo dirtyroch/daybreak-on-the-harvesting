@@ -63,9 +63,27 @@ Fair-play rules for v3 are in tests: nothing random, no pressure words, every pa
 | Calm offer cards: free First Light pose on your first win, one fade preview after a match with a knockout (max 2 shop cards a session, "No thanks" sticks), a Gallery "help your partner" gift card | **Playable in Studio** |
 | Six named weekly drops (18 items) on a fixed schedule, a "Next week" row, and the R$ 4,999 First Light Grand Collection | **Playable in Studio** |
 | Premium/Plus monthly member cosmetic, Daily Ten bonus, invite a friend (both get the Torchbearer Sash) | **Built**; Plus and invites need a published game |
-| Season 2 "High Harvest" skeleton (track, 12 items, rules, twists) | Plan only, not live |
+| Season 2 "High Harvest" skeleton (track, 12 items, rules, twists) | Superseded in v5: the 12 items are now real shop drops |
 
 Still fair: nothing random for Robux, no timers or pressure copy (tested), every card hidden when policy hides paid items, boosts casual-only.
+
+## What's in v5: the first five minutes, family parties and Founders' Dawn
+
+| Area | Status |
+|---|---|
+| **Quick Trials**: a 5-minute match (short Draw, no ceremony, faster Veil). New players get it for their first 2 matches, then the full Jubilee; pick Auto / Quick / Full in Settings. The queue follows the majority | **Playable in Studio** |
+| **First-match checklist** from Rusty (open a crate, hold a weapon, eat, outrun the Veil, help from the Gallery), +120 Renown in total, softer Stand-Ins for your first 3 matches, hidden after 5 | **Playable in Studio** |
+| **Parties of up to 10**: invite anyone in the server, the leader queues everyone, the queue never splits a party, and a party results card after every match | **Playable in Studio** |
+| **Family Rules** (free, on by default in private servers): your party can't hurt each other until the final 4 | **Playable in Studio** |
+| **Welcome back**: after 3+ days away, banked Favor, +50% Renown for 3 matches and double stars up to a weekly pace (never past where a weekly player would be) | **Playable in Studio** |
+| **Founders' Dawn** festival, 18–30 Nov every year (launch week): three free rewards, an Archive Reel match every 3rd match (sepia grade, "Young Rusty" in the field, "the 25th Trials"), and a festival shelf with the R$ 499 Founders' Dawn Set (R$ 646 of items) | **Playable in Studio** |
+| **Share this moment**: one card after a win, top 3, Veil Breaker, Encore or 5 knockouts opens Roblox's own share sheet with a screenshot (only when policy allows sharing). Friends who join from it count as invites | **Built**; CaptureService needs a published game |
+| **Season 2 shelf**: 12 High Harvest items in four drops (season weeks 10–13) and the R$ 1,999 High Harvest Collection (R$ 2,488 of items) | **Playable in Studio** |
+| **Bundles show the saving** plainly ("R$ X less as a set"); a bundle is only offered while it really saves | **Playable in Studio** |
+| **Funnels**: onboarding and first-purchase steps logged to Roblox Analytics (server-side) | **Built**; data appears only in a published game |
+| New realistic icon and thumbnails in `marketing/` | **Ready** |
+
+Still fair: nothing random for Robux, no timers or pressure copy (tested), festival items return every year, boosts never in ranked matches or finals. The old raised-hand pose is now "Hand on Heart" and its Season emote is "Nod".
 
 ## Project layout
 

@@ -530,7 +530,7 @@ function Cutscene.mount(parent: Frame)
 	Net.on("launch", function(d)
 		stop()
 		Fx.announce("Stand on your plate!", T.gold, 2)
-		Fx.toast(string.format("Launch in %ds. Don't step off early. %s", d.seconds, Content.RUSTY.launch), "info")
+		Fx.toast(string.format("Launch in %ds. Don't step off early. %s", d.seconds, Content.rustyLine(Net.state and Net.state.equipped and Net.state.equipped.rusty, "launch")), "info")
 	end)
 	local _ = Config
 end

@@ -47,18 +47,108 @@ Every ID lives in **`src/shared/Monetization.luau`** (in Studio: **ReplicatedSto
 
 On the dashboard: your game > **Monetization > Passes > Create a Pass** for each pass, and **Monetization > Developer Products** for each product. Paste each new ID over its 0, save, rebuild and publish.
 
-| Kind | Key | Name | Price (R$) | What it does |
+You create **8 passes, 14 developer products and 1 subscription**. The Item Shop uses one developer product per price point (`Shop25` ... `Shop1999`): the player picks an item in the game, a confirm card names it and its price, and the Roblox prompt charges that price. If a receipt ever arrives without a matching choice (for example after a server restart), the player gets a Shop Voucher for that amount, so nothing paid is ever lost.
+
+### 6a. Passes (Monetization > Passes)
+
+| Key | Name | Suggested price (R$) | What it does |
+|---|---|---|---|
+| PremiumLane | Season Track Premium Lane | 399 | Premium cosmetic lane for the season. Every reward is shown before you buy. |
+| VIP | Spire VIP | 499 | Gold nametag, +10% Renown in casual matches, twist and No Betrayals controls in private servers you own. No combat power. |
+| GalleryBox | Gallery Box Seat | 149 | Box seat and gold name in the gift feed. Cosmetic. |
+| BigSponsor | Big Sponsor | 249 | Earn Favor 2x faster while spectating. Favor is never sold. |
+| PatronPicks | Patron Picks | 199 | Two extra Gallery cheers (firework flare, cheering banner), paid with earned Favor. Cosmetic. |
+| StarterSatchel | Starter Satchel | 199 | Apple and canteen at the start of casual matches. Free at Season Track tier 12. |
+| TrailBoots | Trail Boots | 299 | +5% stamina regen in casual matches until 10 are left, and a footprint trail. Free at tier 24. |
+| TrainingRetry | Extra Training Try | 99 | One more try at the pregame target range. Cosmetic score. |
+
+### 6b. Developer products (Monetization > Developer Products)
+
+Name the Item Shop products exactly as below so the store page reads clearly.
+
+| Key | Name | Price (R$) | What it does |
+|---|---|---|---|
+| RenownBoost | Renown Boost | 49 | +50% Renown for 30 min in casual matches; everyone else in the server gets a 5-min Renown Shower. |
+| TierSkip | Season Tier Skip | 75 | One Season Track tier. Rewards are cosmetic. |
+| TierSkip10 | Season Tier Skip x10 | 599 | Ten tiers. |
+| Shop25, Shop49, Shop99, Shop149, Shop199, Shop299, Shop399, Shop499, Shop799, Shop1299, Shop1999 | Daybreak Shop item (R$ N) | 25 / 49 / 99 / 149 / 199 / 299 / 399 / 499 / 799 / 1,299 / 1,999 | Pays for the item or bundle picked on the in-game confirm card. |
+
+### 6c. Patron Club subscription (Monetization > Subscriptions)
+
+| Key | Name | Suggested price | Perks |
+|---|---|---|---|
+| PatronClub | Patron Club | R$ 299 a month (or the $4.99 tier if you price in local currency) | A Patron cloak each month kept forever, 2 Tier Skips a month, +15% Renown in casual matches, a wax-seal stamp on letters. |
+
+Subscription IDs look like `EXP-...`; paste it into `Monetization.Subscriptions.PatronClub.id` (a string, `""` until then). Roblox only shows it to accounts where PolicyService says subscriptions are allowed.
+
+### 6d. Item Shop catalog (no Creator Hub setup needed; priced in `src/shared/Store.luau`)
+
+18 items rotate on a fixed 3-week cycle, 6 at a time, changing every Monday 00:00 UTC. The shop says "Back in the shop in N weeks", which is always true. Nothing is random and nothing leaves forever.
+
+| Shelf | ID | Name | R$ | When on sale |
 |---|---|---|---|---|
-| Pass | PremiumLane | Season Track Premium Lane | 399 | Premium cosmetic lane. All rewards shown first. No tiers or Stars sold. |
-| Pass | GalleryBox | Gallery Box Seat | 149 | Box seat + gold name in the gift feed. Cosmetic. |
-| Pass | BigSponsor | Big Sponsor | 249 | Earn Favor 2× faster while spectating. Favor is never sold. |
-| Pass | StarterSatchel | Starter Satchel | 199 | Apple + canteen at the start of casual Jubilees. Free at Season Track tier 12. |
-| Pass | TrailBoots | Trail Boots | 299 | +5% stamina regen in casual Jubilees + footprint trail. Free at tier 24. |
-| Pass | TrainingRetry | Extra Training Try | 99 | One more try at the pregame target score. Cosmetic score only. |
-| Product | RenownBoost | Renown Boost | 49 | +50% Renown 30 min; everyone else in the server gets a 5-min Renown Shower. |
-| Product | FadeEmber / FadeVeil | Knockout fades | 75 | Cosmetic knockout dissolve. |
-| Product | ParadeSunrise / ParadeEmber | Parade outfits | 120 | Cosmetic. |
-| Product | BowGilded / SpearAshen / PackLantern | Skins | 80-90 | Same stats, new look. |
+| Arms | `skin_bow_ashen` | Ashwood Bow | 99 | Always |
+| Arms | `skin_bow_gilded` | Gilded Bow | 199 | Always |
+| Arms | `skin_bow_mirror` | Mirrorwood Bow | 149 | Weekly rotation |
+| Arms | `skin_bow_frost` | Frostline Bow | 299 | Weekly rotation |
+| Arms | `skin_bow_regent` | Regent's Longbow | 499 | Weekly rotation |
+| Arms | `skin_spear_ashen` | Ashen Spear | 99 | Always |
+| Arms | `skin_spear_ember` | Ember Spear | 199 | Always |
+| Arms | `skin_spear_lake` | Lakeglass Spear | 299 | Weekly rotation |
+| Arms | `skin_knife_copper` | Copper Knife | 49 | Always |
+| Arms | `skin_knife_night` | Nightglass Knife | 149 | Weekly rotation |
+| Fades | `fade_ember` | Ember Light | 99 | Always |
+| Fades | `fade_veil` | Veil Shimmer | 99 | Always |
+| Fades | `fade_ash` | Ash and Embers | 149 | Weekly rotation |
+| Fades | `fade_aurora` | Aurora Fade | 199 | Weekly rotation |
+| Fades | `fade_starfall` | Starfall Fade | 299 | Weekly rotation |
+| Poses | `pose_salute` | Reach Salute | 49 | Always |
+| Poses | `pose_bow` | Curtain Bow | 99 | Always |
+| Poses | `pose_lantern` | Lantern Raise | 199 | Weekly rotation |
+| Poses | `pose_crown` | Wheat Crown Toss | 299 | Weekly rotation |
+| Poses | `pose_regent` | Regent's Stand | 499 | Weekly rotation |
+| Emotes | `emote_tip` | Hat Tip | 25 | Always |
+| Emotes | `emote_toast` | Thermos Toast | 49 | Always |
+| Emotes | `emote_twirl` | Ribbon Twirl | 99 | Weekly rotation |
+| Emotes | `emote_lantern` | Lantern Swing | 149 | Weekly rotation |
+| Wraps | `wrap_gold` | Gold Ribbon Wrap | 49 | Always |
+| Wraps | `wrap_lantern` | Paper Lantern Wrap | 99 | Always |
+| Wraps | `wrap_meadow` | Meadow Bloom Wrap | 99 | Weekly rotation |
+| Wraps | `wrap_star` | Starry Night Wrap | 149 | Weekly rotation |
+| Nametags | `tag_ember` | Ember Nametag | 99 | Always |
+| Nametags | `tag_lake` | Lake Nametag | 99 | Always |
+| Nametags | `tag_aurora` | Aurora Nametag | 199 | Weekly rotation |
+| Parade | `parade_sunrise` | Sunrise Parade Coat | 149 | Always |
+| Parade | `parade_ember` | Ember Parade Cape | 149 | Always |
+| Parade | `parade_regal` | Regal Parade Mantle | 399 | Weekly rotation |
+| Rusty | `rusty_thermos` | Rusty's Brass Thermos | 99 | Always |
+| Rusty | `rusty_stories` | Rusty: Old Stories | 149 | Always |
+| Rusty | `rusty_coach` | Rusty: Coach Mode | 149 | Weekly rotation |
+| Reach | `banner_pride_<reach>` | <Reach> Pride Banner (x24 Reaches) | 149 | Always |
+| Reach | `sash_pride_<reach>` | <Reach> Parade Sash (x24) | 99 | Always |
+| Reach | `tag_pride_<reach>` | <Reach> Nametag (x24) | 99 | Always |
+
+Bundles (offered only while the pieces you don't own are worth more than the price):
+
+| ID | Name | R$ | Worth | Contents |
+|---|---|---|---|---|
+| `starter` | Starter Pack | 99 | 222 | One per account: Ashwood Bow, Copper Knife, Gold Ribbon Wrap and the Hat Tip emote. |
+| `ember_set` | Ember Set | 399 | 546 | Ember Spear, Ember Light fade, Ember Parade Cape and Ember Nametag. |
+| `rusty_set` | Rusty's Corner | 299 | 446 | Brass Thermos, Old Stories, Coach Mode and the Thermos Toast emote. |
+| `regent_set` | Regent Collection | 1299 | 1696 | Regent's Longbow, Regent's Stand, Starfall Fade and Regal Parade Mantle. |
+| `arms_locker` | Complete Arms Locker | 1299 | 2040 | All 10 weapon skins in this season's shop. |
+| `spire_collection` | Spire Collection | 1999 | 2708 | Every fade, pose, emote and gift wrap in this season's shop. |
+| `pride_<reach>` | <Reach> Pride Bundle (x24) | 199 | 347 | Banner, sash and nametag for one Reach. |
+
+### 6e. Other earnings to switch on
+
+- **Private servers:** Creator Hub > your game > Monetization > Private Servers. Suggested R$ 99 a month. Spire VIP owners get twist and No Betrayals controls; private matches don't count for Reach standings.
+- **Price optimization / regional pricing:** Monetization > Price Optimization. Turn it on after launch so Roblox tests prices for you.
+- **Roblox Plus:** the Passes & Club tab has a calm "Roblox Plus" button (`MarketplaceService:PromptRobloxSubscriptionPurchase`). Check this call works in Studio first; if it errors, the button quietly does nothing.
+- **Creator Rewards:** automatic. Roblox pays for Active Spenders who play and for new players you bring in through links.
+- **Age checks:** DevEx pays more for spending from age-checked US adults. No setup is needed in the game.
+- **Rewarded video ads:** not built. They need 2,000+ monthly visitors, a passed questionnaire and a 13+ ID-verified owner, and they can't be shown to under-13 players. Add them after launch if you want, as an optional "watch for a small Renown bonus", never as a progress gate.
+- **Animations and voice lines:** poses, emotes and Rusty packs have `anim = 0` / `sound = 0` slots in `Store.luau`. They work now as text bubbles and lines; upload animations and recordings and paste their IDs to make them move and speak.
 
 ## 7. Maturity & Compliance questionnaire (prefilled answers)
 
@@ -79,8 +169,8 @@ Dashboard > your game > **Publish settings > Content rating** (older: **Audience
 | Social hangout | Primary theme is a social hangout? | **No** | It's a competitive match game. |
 | Free-form creation | Free-form user creation? | **No** | Interview answers are preset quips; pacts are Offer / Accept / Snap buttons with no chat; sponsor letters are pre-written; Gallery gifts carry no player-written text. |
 | Sensitive issues | Primary theme a sensitive issue? | **No** | The "Draw" is a lighthearted festival lottery for an arena game. Contenders volunteer through the queue. |
-| Paid random items | Paid random items? | **No** | Nothing sold has a chance roll. Crates are free and found in the arena. |
-| Paid item trading | Trade paid items? | **No** | No trading. |
+| Paid random items | Paid random items? | **No** | Nothing sold has a chance roll. The Item Shop sells named items at named prices; the weekly rotation is a fixed schedule. Crates are free and found in the arena. |
+| Paid item trading | Trade paid items? | **No** | No trading. Gifting buys a new copy for a friend; nothing moves between players. |
 | Media | Share media from gameplay? | **No** | |
 | AI interaction | Users interact with generative AI? | **No** | All NPC lines are pre-written. |
 

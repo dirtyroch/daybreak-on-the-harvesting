@@ -97,7 +97,7 @@ function Fx.hit()
 end
 
 -- A glowing arrow streak from bow to target.
-function Fx.tracer(from: Vector3, to: Vector3)
+function Fx.tracer(from: Vector3, to: Vector3, color: string?)
 	local d = (to - from).Magnitude
 	if d < 1 then
 		return
@@ -108,12 +108,54 @@ function Fx.tracer(from: Vector3, to: Vector3)
 	p.CanQuery = false
 	p.CanTouch = false
 	p.Material = Enum.Material.Neon
-	p.Color = Color3.fromHex("#FFE9A8")
+	p.Color = Color3.fromHex(color or "#FFE9A8")
 	p.Size = Vector3.new(0.15, 0.15, d)
 	p.CFrame = CFrame.lookAt(from:Lerp(to, 0.5), to)
 	p.Parent = workspace
 	TweenService:Create(p, TweenInfo.new(0.3), { Transparency = 1 }):Play()
 	Debris:AddItem(p, 0.35)
+end
+
+-- A floating bubble over someone's head (emotes and Gallery cheers).
+function Fx.bubble(adornee: BasePart, text: string, color: string?, seconds: number?)
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.new(0, 220, 0, 50)
+	bb.StudsOffset = Vector3.new(0, 4.2, 0)
+	bb.MaxDistance = 80
+	bb.Adornee = adornee
+	local tl = Instance.new("TextLabel")
+	tl.BackgroundTransparency = 1
+	tl.Size = UDim2.fromScale(1, 1)
+	tl.Font = Enum.Font.FredokaOne
+	tl.TextScaled = true
+	tl.TextStrokeTransparency = 0.3
+	tl.TextColor3 = Color3.fromHex(color or "#FFE9A8")
+	tl.Text = text
+	tl.Parent = bb
+	bb.Parent = adornee
+	TweenService:Create(bb, TweenInfo.new(seconds or 3), { StudsOffset = Vector3.new(0, 6, 0) }):Play()
+	Debris:AddItem(bb, seconds or 3)
+end
+
+-- Patron Picks firework flare: a bright spark that rises and pops. Cosmetic only.
+function Fx.flare(at: Vector3, color: string?)
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Shape = Enum.PartType.Ball
+	p.Material = Enum.Material.Neon
+	p.Color = Color3.fromHex(color or "#FFD36B")
+	p.Size = Vector3.new(1, 1, 1)
+	p.CFrame = CFrame.new(at + Vector3.new(0, 4, 0))
+	p.Parent = workspace
+	local up = TweenService:Create(p, TweenInfo.new(1.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { CFrame = CFrame.new(at + Vector3.new(0, 40, 0)) })
+	up.Completed:Connect(function()
+		TweenService:Create(p, TweenInfo.new(0.6), { Size = Vector3.new(14, 14, 14), Transparency = 1 }):Play()
+	end)
+	up:Play()
+	Debris:AddItem(p, 2)
 end
 
 -- The knockout bell: one soft ring per knockout so everyone hears the count drop.

@@ -55,6 +55,9 @@ pcall(function()
 	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 end)
 
+Hud.note = function(text: string)
+	Fx.toast(text, "info")
+end
 Net.on("toast", function(p)
 	Fx.toast(p.text, p.kind)
 end)
@@ -72,7 +75,7 @@ Net.on("hazard", function(d)
 	Fx.toast(d.text, "bad")
 end)
 Net.on("tracer", function(d)
-	Fx.tracer(d.from, d.to)
+	Fx.tracer(d.from, d.to, d.color)
 end)
 Net.on("hitmark", function(d)
 	Sfx.play("swat", 1.1, 0.05)
@@ -125,6 +128,23 @@ Net.on("betrayed", function(d)
 	Fx.hit()
 	Fx.toast("“" .. d.line .. "”", "bad")
 end)
+local function headOf(userId: number): BasePart?
+	local p = Players:GetPlayerByUserId(userId)
+	local head = p and p.Character and p.Character:FindFirstChild("Head")
+	return head and head:IsA("BasePart") and head or nil
+end
+Net.on("emote", function(d)
+	local head = headOf(d.user)
+	if head then
+		Fx.bubble(head, d.icon .. " " .. d.name, d.color, 3)
+	end
+end)
+Net.on("cheer", function(d)
+	if d.kind == "flare" and d.at then
+		Fx.flare(d.at, d.color)
+	end
+	Fx.toast(string.format("%s %s cheers for %s!", d.kind == "flare" and "🎆" or "📣", d.from, d.to), "info")
+end)
 Net.on("gift", function(d)
 	Sfx.play("ding")
 	Fx.announce("🪂 Gift from " .. d.from .. "!", UI.Theme.blue, 2.4)
@@ -161,6 +181,8 @@ UserInputService.InputBegan:Connect(function(input: InputObject, processed: bool
 		end
 	elseif input.KeyCode == Enum.KeyCode.LeftShift then
 		setSprint(true)
+	elseif input.KeyCode == Enum.KeyCode.B and not arena() and not Panels.isOpen() then
+		task.spawn(Net.act, "emote", "")
 	elseif input.KeyCode == Enum.KeyCode.P and arena() then
 		Net.act("pactOffer")
 	elseif input.KeyCode == Enum.KeyCode.Y and arena() then

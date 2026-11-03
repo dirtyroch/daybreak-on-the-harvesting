@@ -168,6 +168,12 @@ Config.Gifts = {
 	{ id = "bandage", name = "Bandage", item = "bandage", cost = 16 },
 	{ id = "tea", name = "Rusty's Sweet Tea", item = "sweettea", cost = 40 },
 } :: { Gift }
+-- Patron Picks pass: cosmetic cheers paid with earned Favor. They never change a fight.
+Config.CheerGifts = {
+	{ id = "flare", name = "Firework Flare", cost = 12 },
+	{ id = "cheer", name = "Cheering Banner", cost = 12 },
+}
+Config.CheerCooldown = 20
 
 -- Spectator vote-back ("Encore"): once a match the Gallery can vote one contender back in.
 Config.Encore = { at = 330, length = 20, minAlive = 6, pep = 50, candidates = 3 }
@@ -214,6 +220,10 @@ Config.FairPlay = {
 	showerMinutes = 5,
 	satchelInRanked = false, -- Starter Satchel only in casual modes
 	bootsRegen = 0.05, -- Trail Boots: +5% stamina regen, casual only
+	perksOffAtLeft = 10, -- every paid gameplay perk switches off when this many are left
+	vipRenown = 0.10, -- Spire VIP: +10% Renown (casual)
+	patronRenown = 0.15, -- Patron Club subscription: +15% Renown (casual)
+	patronSkips = 2, -- Patron Club: Season Tier Skips per month
 }
 Config.RANKED = false -- v1 ships casual Jubilee only
 

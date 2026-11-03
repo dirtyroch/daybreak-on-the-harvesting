@@ -12,12 +12,13 @@ export type Info = {
 	paidRandomRestricted: boolean,
 	tradingAllowed: boolean,
 	adsAllowed: boolean,
+	subscriptionAllowed: boolean,
 	links: { string },
 }
-export type Sellable = { random: boolean?, tradable: boolean?, ad: boolean? }
+export type Sellable = { random: boolean?, tradable: boolean?, ad: boolean?, subscription: boolean? }
 
 function Policy.unknown(): Info
-	return { loaded = false, paidRandomRestricted = true, tradingAllowed = false, adsAllowed = false, links = {} }
+	return { loaded = false, paidRandomRestricted = true, tradingAllowed = false, adsAllowed = false, subscriptionAllowed = false, links = {} }
 end
 
 -- Map the raw PolicyService table (keys can be missing) to our flags.
@@ -39,6 +40,8 @@ function Policy.fromRaw(raw: any): Info
 		paidRandomRestricted = raw.ArePaidRandomItemsRestricted ~= false,
 		tradingAllowed = raw.IsPaidItemTradingAllowed == true,
 		adsAllowed = raw.AreAdsAllowed == true,
+		-- missing = not eligible (fail closed)
+		subscriptionAllowed = raw.IsEligibleToPurchaseSubscription == true,
 		links = links,
 	}
 end
@@ -58,6 +61,9 @@ function Policy.canSell(p: Info, item: Sellable): boolean
 		return false
 	end
 	if item.ad and not p.adsAllowed then
+		return false
+	end
+	if item.subscription and not p.subscriptionAllowed then
 		return false
 	end
 	return true

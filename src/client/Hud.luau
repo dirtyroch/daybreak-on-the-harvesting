@@ -11,6 +11,14 @@ local T = UI.Theme
 
 local Hud = {}
 local panels: any = nil
+local lastTier: number? = nil
+local premiumNoted = false
+Hud.note = function(_text: string) end -- set by Main (Fx.toast)
+function Hud.openPanel(id: string)
+	if panels then
+		panels.open(id)
+	end
+end
 local refs: { [string]: any } = {}
 Hud.lobby = nil :: any
 Hud.match = nil :: any
@@ -211,6 +219,12 @@ function Hud.update()
 			end
 		end
 		local seasonBadge = s.season and s.season.unclaimed or 0
+		-- one calm note per session when a tier is reached without the Premium lane
+		if s.season and lastTier and s.season.tier > lastTier and not s.season.premium and not premiumNoted then
+			premiumNoted = true
+			Hud.note("Tier " .. s.season.tier .. " reached! The Premium lane has a ✦ reward here too. See it in the " .. Names.TRACK .. ".")
+		end
+		lastTier = s.season and s.season.tier or lastTier
 		refs.badges.season.Visible = seasonBadge > 0
 		refs.badges.season.Text = tostring(seasonBadge)
 		refs.badges.challenges.Visible = openChallenges > 0
@@ -218,6 +232,9 @@ function Hud.update()
 		local letters = s.letters and s.letters.waiting or 0
 		refs.badges.letters.Visible = letters > 0
 		refs.badges.letters.Text = tostring(letters)
+		-- a calm dot when this week's shop picks are new to you (no countdown)
+		refs.badges.shop.Visible = s.store ~= nil and s.store.isNew == true
+		refs.badges.shop.Text = "•"
 	end
 	local inArena = Hud.mode == "arena"
 	refs.vitals.Visible = inArena

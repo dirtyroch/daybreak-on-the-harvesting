@@ -32,6 +32,8 @@ local Pacts = require("../src/shared/Logic/Pacts")
 local Sponsors = require("../src/shared/Logic/Sponsors")
 local Policy = require("../src/shared/Logic/Policy")
 local Training = require("../src/shared/Logic/Training")
+local Store = require("../src/shared/Store")
+Store.addReachPride(Names.REACH_LIST)
 local Stamina = require("../src/shared/Logic/Stamina")
 local Award = require("../src/shared/Logic/Award")
 local Meters = require("../src/shared/Logic/Meters")
@@ -177,11 +179,14 @@ test("every ID ships as 0", function()
 	for k, p in pairs(Monetization.Products) do
 		eq(p.id, 0, k)
 	end
+	for k, sub in pairs(Monetization.Subscriptions) do
+		eq(sub.id, "", k)
+	end
 end)
 test("no paid random items", function()
 	truthy(Monetization.noRandomItems())
 	for k, p in pairs(Monetization.Products) do
-		truthy(p.kind == "boost" or p.kind == "cosmetic", k)
+		truthy(p.kind == "boost" or p.kind == "cosmetic" or p.kind == "skip" or p.kind == "shop", k)
 	end
 end)
 test("calm shop copy (no pressure words)", function()
@@ -799,6 +804,160 @@ test("realism: meadow grass is toned down", function()
 	local c = roblox.Color3.fromHex(P.meadow)
 	local mx, mn = math.max(c.R, c.G, c.B), math.min(c.R, c.G, c.B)
 	truthy((mx - mn) / mx < 0.5, "meadow saturation") -- v1 #3FBF5A was ~0.67
+end)
+
+-- ===== v3: Item Shop =====
+print("Item Shop (v3)")
+test("store catalog validates (tiers, slots, real bundle savings, calm copy)", function()
+	local errs = Store.validate()
+	eq(#errs, 0, table.concat(errs, "; "))
+	truthy(#Store.ITEMS >= 40, "catalog size")
+end)
+test("every shop price has a Shop tier product, ladder spans R$25 to R$1999", function()
+	for _, p in ipairs(Store.TIERS) do
+		truthy(Monetization.Products["Shop" .. p] ~= nil, "Shop" .. p)
+		eq(Monetization.Products["Shop" .. p].price, p)
+	end
+	local ladder = Monetization.ladder(Store.TIERS)
+	eq(ladder[1], 25)
+	truthy(ladder[#ladder] >= 1999)
+	truthy(#ladder >= 12, "price points")
+end)
+test("weekly rotation is deterministic and covers every rotating item each cycle", function()
+	local cycle = Store.cycleWeeks()
+	truthy(cycle >= 2)
+	local w = Store.week(1793000000)
+	local a, b = Store.rotation(w), Store.rotation(w)
+	eq(#a, Store.FEATURED_PER_WEEK)
+	for i = 1, #a do
+		eq(a[i].id, b[i].id)
+	end
+	local seen = {}
+	for k = 0, cycle - 1 do
+		for _, it in ipairs(Store.rotation(w + k)) do
+			seen[it.id] = true
+		end
+	end
+	for _, it in ipairs(Store.rotatingPool()) do
+		truthy(seen[it.id], it.id .. " never rotates in")
+		local nw = Store.nextWeek(it.id, w)
+		truthy(nw ~= nil and nw - w < cycle + 1, it.id .. " next week")
+	end
+	-- week boundaries are Mondays 00:00 UTC
+	eq(os.date("!%A %H:%M", Store.weekStart(w)), "Monday 00:00")
+end)
+test("items: owned or out of rotation can't be bought, with an honest reason", function()
+	local w = Store.week(1793000000)
+	local inRot = Store.rotation(w)[1]
+	local o = Store.offer("item", inRot.id)
+	truthy(o ~= nil)
+	truthy((Store.canReceive(o :: any, {}, w, {})))
+	local ok, why = Store.canReceive(o :: any, { [inRot.id] = true }, w, {})
+	truthy(not ok and why == "Already owned.")
+	local out = nil
+	for _, it in ipairs(Store.rotatingPool()) do
+		if not Store.inRotation(it.id, w) then
+			out = it
+			break
+		end
+	end
+	local ok2, why2 = Store.canReceive(Store.offer("item", out.id) :: any, {}, w, {})
+	truthy(not ok2 and tostring(why2):find("Back in the shop in", 1, true) ~= nil)
+end)
+test("bundles are only offered while still a real saving; starter is once per account", function()
+	local b = Store.bundle("arms_locker")
+	truthy(b ~= nil)
+	local o = Store.offer("bundle", "arms_locker") :: any
+	truthy((Store.canReceive(o, {}, 0, {})))
+	local owned = {}
+	for i = 1, #b.items - 2 do
+		owned[b.items[i]] = true
+	end
+	truthy(not (Store.canReceive(o, owned, 0, {})), "mostly owned")
+	local st = Store.offer("bundle", "starter") :: any
+	truthy(st.once)
+	local flags = {}
+	local mine = {}
+	truthy((Store.canReceive(st, mine, 0, flags)))
+	eq(Store.grant(st, mine, flags), #st.items)
+	truthy(not (Store.canReceive(st, {}, 0, flags)), "once")
+	truthy(Store.bundle("starter").price <= 99)
+end)
+test("vouchers: receipts without a matching intent are never lost", function()
+	local v = {}
+	Store.addVoucher(v, 199)
+	eq(Store.voucherFor(v, 149), 199)
+	eq(Store.voucherFor(v, 299), nil)
+	truthy(Store.useVoucher(v, 149))
+	truthy(not Store.useVoucher(v, 149))
+	local intent = { kind = "item", id = "skin_bow_gilded", price = 199, t = 1000 }
+	truthy(Store.matchIntent(intent, 199, 1500) ~= nil)
+	eq(Store.matchIntent(intent, 99, 1500), nil)
+	eq(Store.matchIntent(intent, 199, 1000 + 7200), nil)
+	eq(Store.matchIntent(nil, 199, 1000), nil)
+end)
+test("every fade item has a knockout color; every pride Reach has a bundle", function()
+	for _, it in ipairs(Store.ITEMS) do
+		if it.slot == "fade" then
+			truthy(Content.FADES[it.id] ~= nil, it.id)
+		elseif it.slot == "rusty" then
+			truthy(Content.RUSTY_PACKS[it.id] ~= nil, it.id .. " lines")
+			truthy(Content.rustyLine(it.id, "win") ~= Content.RUSTY.win)
+		end
+	end
+	for _, r in ipairs(Names.REACH_LIST) do
+		local found = false
+		for _, b in ipairs(Store.BUNDLES) do
+			if b.name == r .. " Pride Bundle" then
+				found = true
+			end
+		end
+		truthy(found, r)
+	end
+	local n = #Store.ITEMS
+	Store.addReachPride(Names.REACH_LIST)
+	eq(#Store.ITEMS, n, "idempotent")
+end)
+test("pay-to-win guard: boosts are casual-only and perks switch off at the end", function()
+	local FP = Config.FairPlay
+	truthy(FP.perksOffAtLeft >= 10)
+	truthy(FP.vipRenown <= 0.15 and FP.patronRenown <= 0.2)
+	for k, p in pairs(Monetization.Passes) do
+		local d = (p.name .. " " .. p.desc):lower()
+		truthy(not d:find("damage", 1, true) or d:find("same damage", 1, true), k .. " mentions damage")
+	end
+	for _, it in ipairs(Store.ITEMS) do
+		truthy(it.slot ~= "" and Store.tierKey(it.price) ~= nil)
+	end
+end)
+test("subscription needs policy eligibility; fails closed", function()
+	truthy(not Policy.canSell(Policy.unknown(), { subscription = true }))
+	truthy(not Policy.canSell(Policy.fromRaw({ ArePaidRandomItemsRestricted = true }), { subscription = true }))
+	truthy(Policy.canSell(Policy.fromRaw({ IsEligibleToPurchaseSubscription = true }), { subscription = true }))
+end)
+test("monetization copy avoids every pressure word", function()
+	local function check(k: string, text: string)
+		text = text:lower()
+		for _, w in ipairs(Store.PRESSURE_WORDS) do
+			truthy(not text:find(w, 1, true), k .. " says " .. w)
+		end
+	end
+	for k, p in pairs(Monetization.Passes) do
+		check(k, p.name .. " " .. p.desc)
+	end
+	for k, p in pairs(Monetization.Products) do
+		check(k, p.name .. " " .. p.desc)
+	end
+	for k, sub in pairs(Monetization.Subscriptions) do
+		check(k, sub.name .. " " .. sub.desc .. " " .. table.concat(sub.perks, " "))
+	end
+end)
+test("v3 save fields reconcile into old saves", function()
+	local old = { owned = {}, equipped = { fade = "fade_gold", title = "" } }
+	local d = Reconcile.fill(old, DefaultData.new())
+	truthy(type(d.vouchers) == "table" and type(d.buyLog) == "table")
+	eq(d.equipped.bow, "")
+	eq(d.patronMonth, -1)
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

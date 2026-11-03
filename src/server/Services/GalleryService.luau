@@ -20,6 +20,7 @@ local Gifts = require(Shared.Logic.Gifts)
 local Vote = require(Shared.Logic.Vote)
 local Twists = require(Shared.Logic.Twists)
 local Training = require(Shared.Logic.Training)
+local Store = require(Shared.Store)
 
 local GalleryService = {}
 local ctx: any = nil
@@ -69,7 +70,7 @@ local function tmpl(name: string): Instance?
 end
 
 -- Parachute down onto a position; calls onLand when it touches down.
-local function parachute(pos: Vector3, label: string?, onLand: () -> ())
+local function parachute(pos: Vector3, label: string?, onLand: () -> (), wrap: string?)
 	local t = tmpl("Parachute")
 	if not t then
 		onLand()
@@ -82,6 +83,10 @@ local function parachute(pos: Vector3, label: string?, onLand: () -> ())
 	for _, d in ipairs(m:GetDescendants()) do
 		if d:IsA("BasePart") then
 			d.Anchored = true
+			-- Gift Wraps (Item Shop) recolor the canopy stripe and the crate
+			if wrap and (d.Name == "Stripe" or d.Name == "Box") then
+				d.Color = Color3.fromHex(wrap)
+			end
 		end
 	end
 	if label then
@@ -122,7 +127,7 @@ local function parachute(pos: Vector3, label: string?, onLand: () -> ())
 end
 
 -- A gift lands on a contender (from a spectator, or from Rusty).
-function GalleryService.dropGift(c: any, item: string, fromName: string, note: string?)
+function GalleryService.dropGift(c: any, item: string, fromName: string, note: string?, wrap: string?)
 	local root = ctx.Match.rootOf(c)
 	if not root then
 		return
@@ -141,7 +146,7 @@ function GalleryService.dropGift(c: any, item: string, fromName: string, note: s
 		if c.player then
 			ctx.push(c.player, "gift", { from = fromName, item = def and def.name or item, note = note })
 		end
-	end)
+	end, wrap)
 	ctx.pushAll("giftFeed", { from = fromName, to = c.name, item = def and def.name or item })
 end
 
@@ -200,6 +205,10 @@ function GalleryService.view(p: Player): any
 	for _, g in ipairs(Config.Gifts) do
 		table.insert(gifts, { id = g.id, name = g.name, cost = Gifts.cost(g.cost, count, false, Config.Gallery.partnerDiscount, weekMult), partnerCost = Gifts.cost(g.cost, count, true, Config.Gallery.partnerDiscount, weekMult), underdogCost = Gifts.cost(g.cost, count, false, Config.Gallery.partnerDiscount, weekMult * Config.Training.underdogGiftMult) })
 	end
+	local cheers = nil
+	if ctx.Progress.hasPass(p, "PatronPicks") then
+		cheers = Config.CheerGifts
+	end
 	local hb = hazardBallot
 	local eb = encoreBallot
 	local encoreNames = {}
@@ -213,6 +222,7 @@ function GalleryService.view(p: Player): any
 		favor = s and s.favor or 0,
 		alive = alive,
 		gifts = gifts,
+		cheers = cheers,
 		hazard = hb and { options = hb.options, counts = Vote.counts(hb), ends = hazardEnds, mine = hb.votes[tostring(p.UserId)] } or nil,
 		hazardCards = Content.HAZARD_CARDS,
 		encore = eb and { options = encoreNames, counts = Vote.counts(eb), ends = encoreEnds, mine = eb.votes[tostring(p.UserId)] } or nil,
@@ -231,6 +241,45 @@ local function pushViews()
 end
 
 -- ===== intents =====
+local function wrapOf(player: Player): string?
+	local pd = ctx.Progress.dataOf(player)
+	local id = pd and pd.equipped and pd.equipped.wrap
+	local it = id and Store.byId[id]
+	return it and it.color or nil
+end
+
+-- Patron Picks: a firework flare or a cheering banner over a contender. Cosmetic only.
+local lastCheer: { [string]: number } = {}
+local function cheer(player: Player, s: any, c: any, id: string): (boolean, string?)
+	local g = nil
+	for _, x in ipairs(Config.CheerGifts) do
+		if x.id == id then
+			g = x
+		end
+	end
+	if not g then
+		return false, nil
+	end
+	if not ctx.Progress.hasPass(player, "PatronPicks") then
+		return false, "Cheers come with the Patron Picks pass."
+	end
+	local key = player.UserId .. ":" .. c.id
+	if lastCheer[key] and now() - lastCheer[key] < Config.CheerCooldown then
+		return false, "You just cheered for them!"
+	end
+	if s.favor < g.cost then
+		return false, string.format("Needs %d %s.", g.cost, Names.FAVOR)
+	end
+	s.favor -= g.cost
+	lastCheer[key] = now()
+	local root = ctx.Match.rootOf(c)
+	ctx.pushAll("cheer", { kind = g.id, from = player.DisplayName, to = c.name, at = root and root.Position or nil, color = wrapOf(player) or "#FFD36B" })
+	if c.player then
+		ctx.push(c.player, "toast", { text = string.format("📣 %s is cheering for you!", player.DisplayName), kind = "good" })
+	end
+	pushViews()
+	return true, g.id == "flare" and "🎆 Flare away!" or "📣 Cheer sent!"
+end
 local function gift(player: Player, targetId: any, giftId: any): (boolean, string?)
 	local s = spectators[player]
 	if not s then
@@ -250,7 +299,7 @@ local function gift(player: Player, targetId: any, giftId: any): (boolean, strin
 		end
 	end
 	if not g then
-		return false, nil
+		return cheer(player, s, c, giftId)
 	end
 	local ok, wait = Gifts.canSend(lastGift, targetId, now(), Config.Gallery.giftCooldown)
 	if not ok then
@@ -270,7 +319,7 @@ local function gift(player: Player, targetId: any, giftId: any): (boolean, strin
 	s.favor -= cost
 	s.gifts += 1
 	lastGift[targetId] = now()
-	GalleryService.dropGift(c, g.item, player.DisplayName, nil)
+	GalleryService.dropGift(c, g.item, player.DisplayName, nil, wrapOf(player))
 	ctx.Progress.bump(player, "gifts", 1)
 	local pd = ctx.Progress.dataOf(player)
 	if pd then

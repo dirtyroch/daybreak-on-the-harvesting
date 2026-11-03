@@ -36,6 +36,19 @@ knocked-out contender back in.
 
 v2 has not been play-tested in live Roblox Studio yet. Everything below passes on the command line.
 
+## What's in v3: the Daybreak Shop
+
+| Area | Status |
+|---|---|
+| Item Shop with a real weekly rotation (6 picks every Monday, fixed 3-week cycle, "Back in N weeks") | **Playable in Studio** |
+| 109 cosmetic items: weapon skins (bow/spear/knife streak colors), knockout fades, podium poses, emotes (B), gift wraps, nametags, parade outfits, Rusty voice packs, 24 Reach Pride sets | **Playable in Studio** (poses/emotes/voice are text until animation and sound IDs are added) |
+| Bundles that are only offered while still a real saving; one-time R$ 99 Starter Pack | **Playable in Studio** |
+| Gifting to a friend in the server; Shop Vouchers so no payment is ever lost | **Playable in Studio** |
+| Spire VIP, Patron Picks, Tier Skips, Patron Club subscription, private-server rules, Roblox Plus button | **Built**; subscription and Plus calls need a check in Studio |
+| Locker and purchase history in Profile; a calm "new this week" dot | **Playable in Studio** |
+
+Fair-play rules for v3 are in tests: nothing random, no pressure words, every paid perk casual-only, Trail Boots off at 10 left, bundles always a real saving, every ID ships as 0.
+
 ## Project layout
 
 ```
@@ -81,7 +94,8 @@ end of your match.
 Fair Play rules are enforced by tests:
 - No paid random items, anywhere. Crates are free and in the arena.
 - Calm copy only: no countdown pressure, no "last chance", no FOMO in the shop.
-- The premium lane never sells tiers or Stars. Favor is never sold.
+- Favor is never sold. Tier Skips move you along the Season Track, whose rewards are all cosmetic.
+- Paid perks are casual-only (off in ranked). Renown bonuses only speed up cosmetic progress. The only paid perk that touches play, Trail Boots, switches off at 10 left, so money never decides a final showdown.
 - Two passes (Starter Satchel, Trail Boots) give small casual-only perks; both are also free on the
   Season Track.
 

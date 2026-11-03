@@ -33,6 +33,7 @@ local Training = require(Shared.Logic.Training)
 local Stamina = require(Shared.Logic.Stamina)
 local Meters = require(Shared.Logic.Meters)
 local Throw = require(Shared.Logic.Throw)
+local Store = require(Shared.Store)
 
 local MatchService = {}
 local ctx: any = nil
@@ -299,6 +300,24 @@ local function itemName(item: string): string
 end
 
 -- ===================== damage + knockouts =====================
+-- Cosmetic weapon skin color (Item Shop "Arms"). Same stats; only the streak color changes.
+local function skinColor(c: Contender, slot: string): string?
+	if not c.player then
+		return nil
+	end
+	local data = ctx.Progress.dataOf(c.player)
+	local id = data and data.equipped and data.equipped[slot]
+	local it = id and Store.byId[id]
+	return it and it.color or nil
+end
+
+-- Private-server rules (owner with Spire VIP). Public servers always use the seeded twist.
+MatchService.psRules = { twist = "", noBetrayals = false }
+local function isPrivate(): boolean
+	return game.PrivateServerId ~= "" and game.PrivateServerOwnerId ~= 0
+end
+MatchService.isPrivate = isPrivate
+
 local function fadeColor(c: Contender): Color3
 	local fade = "fade_gold"
 	if c.player then
@@ -570,7 +589,7 @@ function MatchService.attack(c: Contender, wid: string, aim: Vector3?): boolean
 		params.FilterDescendantsInstances = { c.model :: any, map().Arena.Veil }
 		local hit = workspace:Raycast(origin, dir, params)
 		local to = hit and hit.Position or (origin + dir)
-		pushMatch("tracer", { from = origin, to = to })
+		pushMatch("tracer", { from = origin, to = to, color = skinColor(c, "bow") })
 		if hit then
 			local m = hit.Instance:FindFirstAncestorOfClass("Model")
 			while m and not byModel[m] do
@@ -776,7 +795,7 @@ function MatchService.throw(c: Contender, aim: Vector3?): boolean
 		local b = Vector3.new(leg.to.x, origin.Y, leg.to.z)
 		local hit = workspace:Raycast(a, b - a, params)
 		local stop = hit and hit.Position or b
-		pushMatch("tracer", { from = a, to = stop, spear = true })
+		pushMatch("tracer", { from = a, to = stop, spear = true, color = skinColor(c, "spear") })
 		-- Veil Breaker: only a rebounded spear counts
 		local core = veilCore
 		if leg.bounced and core and Throw.segDist(leg.from, { x = stop.X, z = stop.Z }, { x = core.Position.X, z = core.Position.Z }) <= Config.VeilBreaker.coreSize * 0.6 then
@@ -1159,6 +1178,13 @@ local function startPregame()
 	local wk = TimeUtil.week(os.time())
 	MatchService.weekly = Twists.weekly(wk)
 	MatchService.twist = Twists.forMatch(MatchService.matchNo, wk)
+	if isPrivate() and MatchService.psRules.twist ~= "" then
+		for _, t in ipairs(Twists.MATCH) do
+			if t.id == MatchService.psRules.twist then
+				MatchService.twist = t
+			end
+		end
+	end
 	local humans = {}
 	for _, p in ipairs(queue) do
 		if p.Parent and #humans < Config.MATCH_SIZE then
@@ -1407,7 +1433,16 @@ local function startPodium()
 		return (a.place or 99) < (b.place or 99)
 	end)
 	for i = 1, math.min(3, #all) do
-		table.insert(podium, { name = all[i].name, reach = all[i].reach, place = all[i].place, knocks = all[i].knocks })
+		local entry = { name = all[i].name, reach = all[i].reach, place = all[i].place, knocks = all[i].knocks }
+		local pl = all[i].player
+		local pd = pl and ctx.Progress.dataOf(pl)
+		if pd and pd.equipped then
+			local pose = Store.byId[pd.equipped.pose or ""]
+			local banner = Store.byId[pd.equipped.banner or ""]
+			entry.pose = pose and { name = pose.name, icon = pose.icon, color = pose.color } or nil
+			entry.banner = banner and banner.name or nil
+		end
+		table.insert(podium, entry)
 	end
 	for _, c in ipairs(all) do
 		-- Encore fix: someone paid at an earlier knockout and voted back in is topped up to
@@ -1784,6 +1819,9 @@ function MatchService.snapPact(c: Contender): (boolean, string?)
 	if MatchService.state ~= "Arena" or not c.alive then
 		return false, nil
 	end
+	if isPrivate() and MatchService.psRules.noBetrayals then
+		return false, "This private server has No Betrayals on."
+	end
 	local sn, why = Pacts.snap(pacts, Config.Pacts, c.id, now())
 	if not sn then
 		return false, why
@@ -1910,7 +1948,7 @@ local function tickBodies(dt: number, wholeSecond: boolean)
 			local moving = Vector3.new(v.X, 0, v.Z).Magnitude > 2
 			Meters.step(m, Config.Meters, dt, 1)
 			local regen = Meters.regenMult(m, Config.Meters)
-			if c.player and ctx.Progress.hasPass(c.player, "TrailBoots") and not Config.RANKED then
+			if c.player and ctx.Progress.hasPass(c.player, "TrailBoots") and not Config.RANKED and MatchService.aliveCount() > Config.FairPlay.perksOffAtLeft then
 				regen *= 1 + Config.FairPlay.bootsRegen
 			end
 			Stamina.step(st, STAMINA_RULES, dt, moving, regen)
@@ -1980,6 +2018,21 @@ function MatchService.init(c: any)
 	ctx.handle("pactSnap", pactSnap)
 	ctx.handle("sprint", sprint)
 	ctx.handle("throw", throw)
+	ctx.handle("psRule", function(player: Player, key: any, value: any): (boolean, string?)
+		local owner = isPrivate() and game.PrivateServerOwnerId == player.UserId
+		local studio = game:GetService("RunService"):IsStudio()
+		if not (owner or studio) or not ctx.Progress.hasPass(player, "VIP") then
+			return false, "Private server rules need Spire VIP and your own private server."
+		end
+		if key == "twist" and type(value) == "string" then
+			MatchService.psRules.twist = value
+			return true, value == "" and "Twist: random each match." or ("Next twist set: " .. value)
+		elseif key == "noBetrayals" and type(value) == "boolean" then
+			MatchService.psRules.noBetrayals = value
+			return true, value and "No Betrayals is on." or "Pact Snaps are allowed again."
+		end
+		return false, nil
+	end)
 end
 
 function MatchService.start()

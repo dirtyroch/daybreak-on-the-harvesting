@@ -3,7 +3,7 @@
 	The Season Track: 30 tiers per season, earned by playing (Daybreak Stars).
 	  * Free lane: every player gets every free reward by playing. Nothing random.
 	  * Premium lane (optional game pass): extra cosmetics on the same tiers. It never
-	    sells power, never sells tiers, and never expires mid-season.
+	    sells power, sells only Tier Skips (cosmetic rewards), and never expires mid-season.
 	  * Every reward is shown before you earn it.
 ]]
 local SeasonTrack = {}

@@ -19,7 +19,20 @@ function DefaultData.new(): any
 		season = { season = 0, stars = 0, claimedFree = {}, claimedPremium = {} },
 		tokens = {}, -- token id -> true (collection book)
 		owned = {}, -- cosmetic id -> true
-		equipped = { fade = "fade_gold", banner = "", title = "" },
+		equipped = {
+			fade = "fade_gold",
+			banner = "",
+			title = "",
+			bow = "",
+			spear = "",
+			knife = "",
+			pose = "",
+			emote = "",
+			wrap = "",
+			nametag = "",
+			parade = "",
+			rusty = "",
+		},
 		reach = "",
 		reachWeek = -1,
 		reachPlayedWeek = -1,
@@ -31,6 +44,13 @@ function DefaultData.new(): any
 		quip = 1,
 		letters = { lastDay = -1, waiting = 0, claimed = 0 }, -- sponsor letters
 		favorBank = 0, -- Favor head start from letters, spent on the next Gallery visit
+		-- Item Shop
+		vouchers = {}, -- price (string) -> count; from receipts whose saved choice was lost
+		shopFlags = {}, -- "bundle:starter" -> true (one-per-account bundles)
+		spent = 0, -- lifetime Robux spent in this game (shown in Profile)
+		buyLog = {}, -- last 20 purchases { t, name, price, gift }
+		patronMonth = -1, -- last month the Patron Club monthly perks were granted
+		shopSeenWeek = -1, -- last shop week the player opened the shop (for the "new this week" dot)
 	}
 end
 

@@ -101,7 +101,11 @@ function Results.mount(parent: Frame)
 		card.Visible = false
 		Net.act("watch")
 	end)
-	UI.button("Close", T.card, { LayoutOrder = 3, Size = UDim2.new(0, 110, 0, 40), TextColor3 = T.text, Parent = row }, function()
+	UI.button("Locker", T.card, { LayoutOrder = 3, Size = UDim2.new(0, 100, 0, 40), TextColor3 = T.text, Parent = row }, function()
+		card.Visible = false
+		Hud.openPanel("profile")
+	end)
+	UI.button("Close", T.card, { LayoutOrder = 4, Size = UDim2.new(0, 90, 0, 40), TextColor3 = T.text, Parent = row }, function()
 		card.Visible = false
 	end)
 
@@ -110,6 +114,7 @@ function Results.mount(parent: Frame)
 		Hud.mode = "gallery"
 		local how = d.betrayed and d.by and string.format("Betrayed by %s (%s). Your old pact-mate struck first.", d.by, d.byReach or "?") or d.by and string.format("Tapped by %s (%s) with %s%s. They had %d Pep left.", d.by, d.byReach or "?", d.weapon or "a shove", d.dist and string.format(" from %d studs", math.floor(d.dist)) or "", math.floor(d.byPep or 0)) or ("Knocked out by " .. tostring(d.cause))
 		Fx.announce(d.betrayed and "Pact Snap!" or "How you got tapped", T.red, 2.6)
+		Fx.toast("“" .. Content.rustyLine(Net.state and Net.state.equipped and Net.state.equipped.rusty, "lose") .. "”", "info")
 		Fx.toast(how, "info")
 		killcam(d)
 		task.delay(1.6, function()
@@ -121,13 +126,25 @@ function Results.mount(parent: Frame)
 		if d.place == 1 then
 			Sfx.play("fanfare")
 			Fx.announce("🌅 " .. Names.CHAMPION .. "!", T.gold, 3.5)
-			Fx.toast("“" .. Content.RUSTY.win .. "”", "good")
+			Fx.toast("“" .. Content.rustyLine(Net.state and Net.state.equipped and Net.state.equipped.rusty, "win") .. "”", "good")
 		end
 		showCard(d.place, d.headline, d.lines, d.result, d.result and d.result.topUp and "Encore top-up: paid for your best finish." or nil)
 	end)
 	Net.on("podium", function(d)
 		Hud.mode = "lobby"
 		Fx.announce(string.format("%s of %s wins!", d.winner, d.reach), T.gold, 3)
+		local top = d.podium and d.podium[1]
+		if top and (top.pose or top.banner) then
+			-- the winner's podium pose and banner, seen by everyone in the server
+			local bits = {}
+			if top.pose then
+				table.insert(bits, top.pose.icon .. " " .. top.pose.name)
+			end
+			if top.banner then
+				table.insert(bits, "🚩 " .. top.banner)
+			end
+			Fx.toast(top.name .. " strikes a pose: " .. table.concat(bits, " · "), "good")
+		end
 		requeueAt = workspace:GetServerTimeNow() + d.next
 	end)
 	Net.on("requeue", function(d)

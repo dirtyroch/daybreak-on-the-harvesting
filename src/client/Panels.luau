@@ -11,6 +11,8 @@ local Hud = require(script.Parent.Hud)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared.Names)
 local Content = require(Shared.Content)
+local Shop = require(Shared.Store)
+Shop.addReachPride(Names.REACH_LIST)
 local T = UI.Theme
 
 local Panels = {}
@@ -39,7 +41,7 @@ local builders: { [string]: (any) -> () } = {}
 builders.season = function(s: any)
 	local se = s.season
 	title.Text = "🌅 " .. Names.TRACK .. " · " .. se.name
-	note(string.format("Tier %d of %d. %d %s, %d per tier. Earn %s from every match and every challenge. Tiers are never sold.", se.tier, #se.tiers, se.stars, Names.STARS, se.perTier, Names.STARS), 0)
+	note(string.format("Tier %d of %d. %d %s, %d per tier. Earn %s from every match and every challenge. Tier Skips in the shop only move you along; every reward is cosmetic.", se.tier, #se.tiers, se.stars, Names.STARS, se.perTier, Names.STARS), 0)
 	for i, tier in ipairs(se.tiers) do
 		local f = row(58, i)
 		local reached = i <= se.tier
@@ -122,45 +124,296 @@ builders.tokens = function(s: any)
 	end
 end
 
+-- ===================== Item Shop (v3) =====================
+-- Tabs: This Week, Arms, Style, Reach, Bundles, Passes & Club. Every buy goes through a
+-- confirm card that names the exact item and price. Nothing is random; rotation is a fixed
+-- weekly schedule, so "Back in N weeks" is always true.
+local shopTab = "week"
+local confirm: Frame? = nil
+local friendCache: { [number]: boolean } = {}
+
+local function closeConfirm()
+	if confirm then
+		confirm:Destroy()
+		confirm = nil
+	end
+end
+
+local function isFriend(p: Player): boolean
+	local v = friendCache[p.UserId]
+	if v == nil then
+		local ok, res = pcall(function()
+			return Players.LocalPlayer:IsFriendsWithAsync(p.UserId)
+		end)
+		v = ok and res == true
+		friendCache[p.UserId] = v
+	end
+	return v :: boolean
+end
+
+local function openConfirm(o: any, store: any)
+	closeConfirm()
+	local c = UI.frame({ BackgroundColor3 = T.bg, BackgroundTransparency = 0.15, Size = UDim2.fromScale(1, 1), ZIndex = 20, Parent = win })
+	confirm = c
+	UI.corner(c, 14)
+	local card = UI.frame({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, 420, 0, 300), BackgroundColor3 = T.panel, ZIndex = 21, Parent = c })
+	UI.corner(card, 14)
+	UI.stroke(card, T.gold, 2)
+	UI.pad(card, 16)
+	UI.label(o.icon .. " " .. o.name, { Size = UDim2.new(1, 0, 0, 34), TextSize = 24, TextColor3 = T.gold, ZIndex = 22, Parent = card })
+	UI.label(o.desc or "", { Position = UDim2.new(0, 0, 0, 38), Size = UDim2.new(1, 0, 0, 52), TextSize = 15, Font = T.body, TextColor3 = T.dim, TextWrapped = true, ZIndex = 22, Parent = card })
+	local voucher = store.vouchers and Shop.voucherFor(store.vouchers, o.price)
+	local gifting: Player? = nil
+	local status = UI.label("", { Position = UDim2.new(0, 0, 0, 92), Size = UDim2.new(1, 0, 0, 22), TextSize = 14, Font = T.body, TextColor3 = T.text, ZIndex = 22, Parent = card })
+	local function refreshStatus()
+		status.Text = (gifting and ("🎁 Gift to " .. gifting.DisplayName) or "For you") .. (voucher and "  ·  you have a voucher for this" or "")
+	end
+	refreshStatus()
+	local function buy(useVoucher: boolean)
+		Net.act("shopBuy", o.kind, o.id, { to = gifting and gifting.UserId or nil, voucher = useVoucher })
+		closeConfirm()
+	end
+	UI.button("Buy for R$ " .. o.price, T.gold, { Position = UDim2.new(0, 0, 1, -96), Size = UDim2.new(0.5, -4, 0, 42), TextSize = 17, ZIndex = 22, Parent = card }, function()
+		buy(false)
+	end)
+	UI.button("Not now", T.card, { Position = UDim2.new(0.5, 4, 1, -96), Size = UDim2.new(0.5, -4, 0, 42), TextSize = 17, TextColor3 = T.text, ZIndex = 22, Parent = card }, closeConfirm)
+	if voucher then
+		UI.button("Use voucher (R$ " .. voucher .. ")", T.green, { Position = UDim2.new(0, 0, 1, -48), Size = UDim2.new(0.5, -4, 0, 40), TextSize = 15, TextColor3 = T.text, ZIndex = 22, Parent = card }, function()
+			buy(true)
+		end)
+	end
+	if not o.once then
+		UI.button("🎁 Gift to a friend", T.blue, { Position = UDim2.new(0.5, 4, 1, -48), Size = UDim2.new(0.5, -4, 0, 40), TextSize = 15, TextColor3 = T.text, ZIndex = 22, Parent = card }, function()
+			local picker = UI.frame({ Position = UDim2.new(0, 0, 0, 118), Size = UDim2.new(1, 0, 0, 80), BackgroundTransparency = 1, ZIndex = 23, Parent = card })
+			UI.list(picker, Enum.FillDirection.Horizontal, 6)
+			local any = false
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= Players.LocalPlayer and isFriend(p) then
+					any = true
+					UI.button(p.DisplayName, gifting == p and T.gold or T.card, { Size = UDim2.new(0, 120, 0, 34), TextSize = 14, TextColor3 = gifting == p and T.dark or T.text, ZIndex = 24, Parent = picker }, function()
+						gifting = p
+						refreshStatus()
+						picker:Destroy()
+					end)
+				end
+			end
+			if not any then
+				UI.label("Gifts go to a friend in this server. None here right now.", { Size = UDim2.new(1, 0, 0, 30), TextSize = 14, Font = T.body, TextColor3 = T.dim, ZIndex = 24, Parent = picker })
+			end
+		end)
+	end
+end
+
+local function itemCard(parent: Instance, it: any, order: number, store: any)
+	local f = UI.frame({ BackgroundColor3 = it.owned and T.cardHi or T.card, LayoutOrder = order, Parent = parent })
+	UI.corner(f, 10)
+	UI.pad(f, 6)
+	local sw = UI.frame({ BackgroundColor3 = Color3.fromHex(it.color or "#F4EFE6"), Size = UDim2.new(1, 0, 0, 6), Parent = f })
+	UI.corner(sw, 3)
+	UI.label(it.icon, { Position = UDim2.new(0, 0, 0, 10), Size = UDim2.new(1, 0, 0, 40), TextSize = 32, TextXAlignment = Enum.TextXAlignment.Center, Parent = f })
+	UI.label(it.name, { Position = UDim2.new(0, 0, 0, 52), Size = UDim2.new(1, 0, 0, 20), TextSize = 14, TextXAlignment = Enum.TextXAlignment.Center, Parent = f })
+	local label = it.owned and "Owned" or ("R$ " .. it.price)
+	local color = it.owned and T.green or T.gold
+	if not it.owned and not it.canBuy then
+		label = it.why or "Not now"
+		color = T.card
+	end
+	UI.button(label, color, { Position = UDim2.new(0, 0, 1, -32), Size = UDim2.new(1, 0, 0, 32), TextSize = 13, TextColor3 = color == T.gold and T.dark or T.text, Parent = f }, function()
+		if it.owned then
+			Panels.open("profile")
+		elseif it.canBuy then
+			openConfirm({ kind = "item", id = it.id, name = it.name, icon = it.icon, price = it.price, desc = it.desc }, store)
+		end
+	end)
+end
+
+local function grid(order: number, h: number?): Frame
+	local g = UI.frame({ BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = order, Parent = body })
+	UI.new("UIGridLayout", { CellSize = UDim2.new(0, 132, 0, h or 150), CellPadding = UDim2.new(0, 8, 0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = g })
+	return g
+end
+
+local SHOP_TABS = {
+	{ id = "week", text = "This Week" },
+	{ id = "arms", text = "Arms" },
+	{ id = "style", text = "Style" },
+	{ id = "reach", text = "Reach Pride" },
+	{ id = "bundles", text = "Bundles" },
+	{ id = "passes", text = "Passes & Club" },
+}
+local TAB_CATS: { [string]: { string } } = {
+	arms = { "Arms" },
+	style = { "Fades", "Poses", "Emotes", "Wraps", "Nametags", "Parade", "Rusty" },
+	reach = { "Reach" },
+}
+
 builders.shop = function(s: any)
-	title.Text = "🛍️ Shop"
-	note("Everything here is cosmetic or a convenience. Nothing is random, and Robux never buys tiers, Stars, or Favor.", 0)
+	title.Text = "🛍️ Daybreak Shop"
+	closeConfirm()
 	local shop = s.shop
-	if not shop.visible then
-		note("The shop is loading your store rules. Check back in a moment.", 1)
+	local store = s.store
+	if not shop.visible or not store then
+		note("The shop is loading your store rules. Check back in a moment.", 0)
 		return
 	end
+	if store.isNew then
+		Net.act("seenShop")
+	end
+	local tabs = UI.frame({ BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, 40), LayoutOrder = 0, Parent = body })
+	UI.list(tabs, Enum.FillDirection.Horizontal, 6)
+	for _, t in ipairs(SHOP_TABS) do
+		UI.button(t.text, shopTab == t.id and T.gold or T.card, { Size = UDim2.new(0, 112, 0, 36), TextSize = 14, TextColor3 = shopTab == t.id and T.dark or T.text, Parent = tabs }, function()
+			shopTab = t.id
+			Panels.refresh()
+		end)
+	end
 	local order = 1
-	heading("Passes", order)
-	for key, p in pairs(shop.catalog.passes) do
+	if shopTab == "week" then
+		note(string.format("New picks every Monday. Today's six change on %s. Every item comes back on a fixed %d-week cycle. Cosmetic only, never random.", store.changesOn, store.cycle), order)
 		order += 1
-		local f = row(70, order)
-		UI.label(p.icon .. " " .. p.name, { Size = UDim2.new(1, -150, 0, 22), TextSize = 17, Parent = f })
-		UI.label(p.desc, { Position = UDim2.new(0, 0, 0, 22), Size = UDim2.new(1, -150, 0, 32), TextSize = 13, Font = T.body, TextColor3 = T.dim, Parent = f })
-		local owned = s.passes[key]
-		local avail = shop.passes[key]
-		UI.button(owned and "Owned" or (avail and ("Buy for R$ " .. p.price) or "Not on sale yet"), owned and T.green or (avail and T.gold or T.card), { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 140, 0, 38), TextSize = 15, Parent = f }, function()
-			if not owned and avail then
-				Net.act("buy", "pass", key)
+		local g = grid(order)
+		for i, it in ipairs(store.featured) do
+			itemCard(g, it, i, store)
+		end
+		order += 1
+		local st = nil
+		for _, b in ipairs(store.bundles) do
+			if b.once then
+				st = b
 			end
+		end
+		if st and st.canBuy then
+			local f = row(70, order)
+			UI.label(st.icon .. " " .. st.name, { Size = UDim2.new(1, -150, 0, 24), TextSize = 18, TextColor3 = T.gold, Parent = f })
+			UI.label(string.format("%s Worth R$ %d on its own. One per account.", st.desc, st.value), { Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, -150, 0, 32), TextSize = 13, Font = T.body, TextColor3 = T.dim, TextWrapped = true, Parent = f })
+			UI.button("R$ " .. st.price, T.gold, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 120, 0, 38), TextSize = 16, Parent = f }, function()
+				openConfirm({ kind = "bundle", id = st.id, name = st.name, icon = st.icon, price = st.price, desc = st.desc, once = true }, store)
+			end)
+		end
+	elseif TAB_CATS[shopTab] then
+		if shopTab == "arms" then
+			note("Weapon skins change your bow and spear streaks, your hotbar and the kill feed. Same damage as every other skin.", order)
+		elseif shopTab == "reach" then
+			note("Fly your home " .. Names.REGION .. "'s colors: a banner under your name and on the podium, a parade sash and a nametag.", order)
+		else
+			note("Fades color your knockout light, poses play on the podium, emotes (B) work in the lobby and Gallery, wraps color your gift parachutes.", order)
+		end
+		for _, cat in ipairs(TAB_CATS[shopTab]) do
+			order += 1
+			local items = {}
+			for _, it in ipairs(store.shelves[cat] or {}) do
+				if shopTab ~= "reach" or it.name:find(s.reach ~= "" and s.reach or "", 1, true) or s.reach == "" then
+					table.insert(items, it)
+				end
+			end
+			for _, it in ipairs(store.featured) do
+				if it.cat == cat then
+					table.insert(items, it)
+				end
+			end
+			if #items > 0 then
+				heading(cat, order)
+				order += 1
+				local g = grid(order)
+				for i, it in ipairs(items) do
+					itemCard(g, it, i, store)
+				end
+			end
+		end
+	elseif shopTab == "bundles" then
+		note("A bundle is only offered while the items you don't own yet are worth more than its price.", order)
+		for _, b in ipairs(store.bundles) do
+			local otherReach = b.id:sub(1, 6) == "pride_" and s.reach ~= "" and not b.name:find(s.reach, 1, true)
+			if otherReach or (b.once and not b.canBuy) then
+				continue
+			end
+			order += 1
+			local f = row(70, order)
+			UI.label(b.icon .. " " .. b.name, { Size = UDim2.new(1, -150, 0, 24), TextSize = 17, Parent = f })
+			UI.label(string.format("%d items · worth R$ %d · you're missing R$ %d of it", b.count, b.value, b.missing), { Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, -150, 0, 32), TextSize = 13, Font = T.body, TextColor3 = T.dim, Parent = f })
+			UI.button(b.canBuy and ("R$ " .. b.price) or (b.why or "Not now"), b.canBuy and T.gold or T.card, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 140, 0, 38), TextSize = 13, TextColor3 = b.canBuy and T.dark or T.text, Parent = f }, function()
+				if b.canBuy then
+					openConfirm({ kind = "bundle", id = b.id, name = b.name, icon = b.icon, price = b.price, desc = b.desc, once = b.once }, store)
+				end
+			end)
+		end
+	else
+		heading("Passes", order)
+		local keys = {}
+		for key in pairs(shop.catalog.passes) do
+			table.insert(keys, key)
+		end
+		table.sort(keys, function(a, b)
+			return shop.catalog.passes[a].price < shop.catalog.passes[b].price
+		end)
+		for _, key in ipairs(keys) do
+			local p = shop.catalog.passes[key]
+			order += 1
+			local f = row(70, order)
+			UI.label(p.icon .. " " .. p.name, { Size = UDim2.new(1, -150, 0, 22), TextSize = 17, Parent = f })
+			UI.label(p.desc, { Position = UDim2.new(0, 0, 0, 22), Size = UDim2.new(1, -150, 0, 32), TextSize = 13, Font = T.body, TextColor3 = T.dim, TextWrapped = true, Parent = f })
+			local owned = s.passes[key]
+			local avail = shop.passes[key]
+			UI.button(owned and "Owned" or (avail and ("R$ " .. p.price) or "Not on sale yet"), owned and T.green or (avail and T.gold or T.card), { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 140, 0, 38), TextSize = 15, Parent = f }, function()
+				if not owned and avail then
+					Net.act("buy", "pass", key)
+				end
+			end)
+		end
+		order += 1
+		heading("Season and boosts", order)
+		for key, p in pairs(shop.catalog.products) do
+			if p.category ~= "Shop" then
+				order += 1
+				local f = row(62, order)
+				UI.label(p.icon .. " " .. p.name, { Size = UDim2.new(1, -150, 0, 22), TextSize = 17, Parent = f })
+				UI.label(p.desc, { Position = UDim2.new(0, 0, 0, 22), Size = UDim2.new(1, -150, 0, 30), TextSize = 13, Font = T.body, TextColor3 = T.dim, TextWrapped = true, Parent = f })
+				local avail = shop.products[key]
+				UI.button(avail and ("R$ " .. p.price) or "Not on sale yet", avail and T.gold or T.card, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 140, 0, 38), TextSize = 15, Parent = f }, function()
+					if avail then
+						Net.act("buy", "product", key)
+					end
+				end)
+			end
+		end
+		local sub = shop.subscription
+		if sub then
+			order += 1
+			heading("Patron Club", order)
+			order += 1
+			local f = row(96, order)
+			UI.label(sub.icon .. " " .. sub.name .. " · R$ " .. sub.price .. " a month", { Size = UDim2.new(1, -150, 0, 24), TextSize = 17, Parent = f })
+			UI.label(table.concat(sub.perks, " · ") .. ". Cancel any time in Roblox settings.", { Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, -150, 0, 56), TextSize = 13, Font = T.body, TextColor3 = T.dim, TextWrapped = true, Parent = f })
+			UI.button(sub.active and "Member" or (sub.available and "See Price" or "Not available"), sub.active and T.green or (sub.available and T.gold or T.card), { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 140, 0, 38), TextSize = 15, Parent = f }, function()
+				if sub.available and not sub.active then
+					Net.act("subscribe")
+				end
+			end)
+		end
+		order += 1
+		local f = row(62, order)
+		UI.label("🏰 Private servers · R$ " .. (shop.privateServerPrice or 99) .. " a month", { Size = UDim2.new(1, 0, 0, 22), TextSize = 16, Parent = f })
+		UI.label("Play with friends. Spire VIP owners can pick the twist and turn on No Betrayals. Private matches don't count for Reach standings.", { Position = UDim2.new(0, 0, 0, 22), Size = UDim2.new(1, 0, 0, 32), TextSize = 13, Font = T.body, TextColor3 = T.dim, TextWrapped = true, Parent = f })
+		if store.psOwner then
+			order += 1
+			local g = UI.frame({ BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, 40), LayoutOrder = order, Parent = body })
+			UI.list(g, Enum.FillDirection.Horizontal, 6)
+			UI.button("No Betrayals", T.blue, { Size = UDim2.new(0, 150, 0, 36), TextSize = 14, TextColor3 = T.text, Parent = g }, function()
+				Net.act("psRule", "noBetrayals", true)
+			end)
+			UI.button("Random twist", T.card, { Size = UDim2.new(0, 150, 0, 36), TextSize = 14, TextColor3 = T.text, Parent = g }, function()
+				Net.act("psRule", "twist", "")
+			end)
+		end
+		order += 1
+		UI.button("➕ Roblox Plus", T.card, { LayoutOrder = order, Size = UDim2.new(0, 200, 0, 36), TextSize = 14, TextColor3 = T.text, Parent = body }, function()
+			Net.act("plus")
 		end)
 	end
-	order += 1
-	heading("Items", order)
-	for key, p in pairs(shop.catalog.products) do
-		order += 1
-		local f = row(70, order)
-		UI.label(p.icon .. " " .. p.name .. "  ·  " .. p.category, { Size = UDim2.new(1, -150, 0, 22), TextSize = 17, Parent = f })
-		UI.label(p.desc, { Position = UDim2.new(0, 0, 0, 22), Size = UDim2.new(1, -150, 0, 32), TextSize = 13, Font = T.body, TextColor3 = T.dim, Parent = f })
-		local avail = shop.products[key]
-		UI.button(avail and ("Buy for R$ " .. p.price) or "Not on sale yet", avail and T.gold or T.card, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 140, 0, 38), TextSize = 15, Parent = f }, function()
-			if avail then
-				Net.act("buy", "product", key)
-			end
-		end)
-	end
+	order += 100
+	note(string.format("Robux spent here so far: R$ %d. Your purchase history is in Profile.", store.spent or 0), order)
 	if shop.studio then
-		note("Studio test mode: items with ID 0 are granted free here so you can try them. They're hidden in the live game until real IDs are set.", order + 1)
+		note("Studio test mode: anything with ID 0 is free here so you can try it. Hidden in the live game until real IDs are set.", order + 1)
 	end
 end
 
@@ -184,14 +437,62 @@ builders.profile = function(s: any)
 		UI.label(l[1], { Size = UDim2.new(0.6, 0, 1, 0), TextSize = 16, Font = T.body, Parent = f })
 		UI.label(tostring(l[2]), { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Size = UDim2.new(0.4, 0, 1, 0), TextSize = 16, TextXAlignment = Enum.TextXAlignment.Right, Parent = f })
 	end
-	heading("Knockout fade", 20)
-	local grid = UI.frame({ BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, 44), LayoutOrder = 21, Parent = body })
-	UI.list(grid, Enum.FillDirection.Horizontal, 6)
-	for id, f in pairs(Content.FADES) do
-		local owned = id == "fade_gold" or s.owned[id]
-		UI.button(f.name, s.equipped.fade == id and T.gold or T.card, { Size = UDim2.new(0, 140, 0, 38), TextSize = 14, TextColor3 = s.equipped.fade == id and T.dark or (owned and T.text or T.dim), Parent = grid }, function()
-			Net.act("equip", "fade", id)
-		end)
+	heading("Locker", 10)
+	local LOCKER = {
+		{ slot = "fade", label = "Knockout fade" },
+		{ slot = "bow", label = "Bow skin" },
+		{ slot = "spear", label = "Spear skin" },
+		{ slot = "knife", label = "Knife skin" },
+		{ slot = "pose", label = "Podium pose" },
+		{ slot = "emote", label = "Emote (B)" },
+		{ slot = "wrap", label = "Gift wrap" },
+		{ slot = "nametag", label = "Nametag" },
+		{ slot = "banner", label = "Banner" },
+		{ slot = "parade", label = "Parade" },
+		{ slot = "rusty", label = "Rusty pack" },
+	}
+	for i, L in ipairs(LOCKER) do
+		local f = UI.frame({ BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 10 + i, Parent = body })
+		UI.new("UIGridLayout", { CellSize = UDim2.new(0, 150, 0, 34), CellPadding = UDim2.new(0, 6, 0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = f })
+		local eq = s.equipped[L.slot] or ""
+		UI.label(L.label, { LayoutOrder = 0, TextSize = 14, TextColor3 = T.dim, Parent = f })
+		local opts: { { id: string, name: string } } = {}
+		if L.slot == "fade" then
+			for id, fd in pairs(Content.FADES) do
+				if id == "fade_gold" or s.owned[id] then
+					table.insert(opts, { id = tostring(id), name = fd.name })
+				end
+			end
+		else
+			table.insert(opts, { id = "", name = "Default" })
+			for _, it in ipairs(Shop.ITEMS) do
+				if it.slot == L.slot and s.owned[it.id] then
+					table.insert(opts, { id = it.id, name = it.icon .. " " .. it.name })
+				end
+			end
+			if L.slot == "nametag" and s.passes.VIP then
+				table.insert(opts, { id = "tag_vip", name = "👑 VIP Gold" })
+			end
+			if L.slot == "parade" then
+				for id in pairs(s.owned) do
+					if string.sub(id, 1, 13) == "patron_cloak_" then
+						table.insert(opts, { id = id, name = "📜 Patron Cloak " .. string.sub(id, 14) })
+					end
+				end
+			end
+		end
+		for j, o in ipairs(opts) do
+			UI.button(o.name, eq == o.id and T.gold or T.card, { LayoutOrder = j, TextSize = 13, TextColor3 = eq == o.id and T.dark or T.text, Parent = f }, function()
+				Net.act("equip", L.slot, o.id)
+			end)
+		end
+	end
+	local store = s.store
+	if store and store.log and #store.log > 0 then
+		heading(string.format("Purchase history · R$ %d spent", store.spent or 0), 70)
+		for i, l in ipairs(store.log) do
+			note(string.format("%s · %s · R$ %d%s", os.date("%b %d", l.t), l.name, l.price, l.gift and (" · gift to " .. l.gift) or ""), 70 + i)
+		end
 	end
 	heading("Title", 25)
 	local tgrid = UI.frame({ BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, 44), LayoutOrder = 26, Parent = body })

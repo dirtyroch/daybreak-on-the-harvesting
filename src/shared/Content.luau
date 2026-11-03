@@ -92,6 +92,31 @@ Content.RUSTY = {
 	training = "Not bad. Not bad at all.",
 } :: { [string]: string }
 
+-- Rusty packs (Item Shop): extra voice lines that replace the defaults when equipped.
+-- Text lines now; `sound` slots in Store.luau take recorded voice IDs later.
+Content.RUSTY_PACKS = {
+	rusty_thermos = {
+		win = "*clink* To you, champ. Thermos is full and so am I. Proud, I mean.",
+		lose = "Have a sip. Warm tea fixes most things. The rest we fix next match.",
+		launch = "Thermos is warm, kid. Come back and I'll pour you one.",
+	},
+	rusty_stories = {
+		win = "Reminds me of my own Trial. Except I won ugly. You won pretty.",
+		lose = "Back in my year I got tapped in the first minute. Stood up. Went again.",
+		launch = "My first Trial, I hid in a tree for an hour. Do better than me. Just a bit.",
+	},
+	rusty_coach = {
+		win = "Textbook! High ground, patience, one clean shot. Again!",
+		lose = "Tip: drink before you're thirsty, move before the Veil makes you.",
+		launch = "Coach says: trees first, crates second, heroics last.",
+	},
+} :: { [string]: { [string]: string } }
+
+function Content.rustyLine(pack: string?, key: string): string
+	local p = pack and Content.RUSTY_PACKS[pack]
+	return (p and p[key]) or Content.RUSTY[key]
+end
+
 -- Stand-In bot first names (generic, original).
 Content.BOT_NAMES = {
 	"Ash", "Briar", "Cove", "Dell", "Ember", "Fern", "Gale", "Hollis", "Ivy", "Jory", "Kit", "Lark",
@@ -108,6 +133,9 @@ Content.FADES = {
 	fade_bloom = { name = "Bloom Petals", color = "#FF4FB8" },
 	fade_dawn = { name = "Patron's Dawn", color = "#FFB38A" },
 	fade_lantern = { name = "Lantern Glow", color = "#FFE9A8" },
+	fade_ash = { name = "Ash and Embers", color = "#D8C3A5" },
+	fade_aurora = { name = "Aurora Fade", color = "#7DFFB2" },
+	fade_starfall = { name = "Starfall Fade", color = "#FFF1B8" },
 } :: { [string]: { name: string, color: string } }
 
 return Content

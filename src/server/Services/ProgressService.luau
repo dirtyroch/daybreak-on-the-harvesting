@@ -30,12 +30,14 @@ local Twists = require(Shared.Logic.Twists)
 local TimeUtil = require(Shared.Logic.TimeUtil)
 local Sponsors = require(Shared.Logic.Sponsors)
 local Award = require(Shared.Logic.Award)
+local Store = require(Shared.Store)
+Store.addReachPride(Names.REACH_LIST)
 
 local ProgressService = {}
 local ctx: any = nil
 local letterView: (data: any) -> any -- assigned below (sponsor letters)
 
-export type Runtime = { passes: { [string]: boolean }, dirty: boolean }
+export type Runtime = { passes: { [string]: boolean }, dirty: boolean, sub: boolean? }
 ProgressService.runtime = {} :: { [Player]: Runtime }
 ProgressService.reachTable = {} :: { [string]: number } -- this server's view of this week's points
 local reachStore: OrderedDataStore? = nil
@@ -139,6 +141,7 @@ function ProgressService.snapshot(player: Player): any?
 		quip = data.quip,
 		passes = ProgressService.runtime[player] and ProgressService.runtime[player].passes or {},
 		shop = ctx.Purchase.availability(player),
+		store = ctx.Purchase.shopView(player),
 		seenReaping = data.seenReaping,
 		letters = letterView(data),
 		favorBank = data.favorBank or 0,
@@ -218,11 +221,34 @@ function ProgressService.nextGoal(player: Player, stat: string): number?
 	return best
 end
 
-function ProgressService.boostMult(_player: Player, data: any): number
+function ProgressService.boostMult(player: Player, data: any): number
+	local m = 1
 	if data.boost and data.boost.untilT > os.time() then
-		return 1 + data.boost.mult
+		m += data.boost.mult
 	end
-	return 1
+	-- casual-only Renown perks (Renown is cosmetic progress; never combat)
+	if not Config.RANKED then
+		if ProgressService.hasPass(player, "VIP") then
+			m += Config.FairPlay.vipRenown
+		end
+		local r = ProgressService.runtime[player]
+		if r and r.sub then
+			m += Config.FairPlay.patronRenown
+		end
+	end
+	return m
+end
+
+-- Tier Skips and Patron Club skips: move along the cosmetic Season Track.
+function ProgressService.skipTiers(player: Player, n: number): number
+	local data = ProgressService.dataOf(player)
+	if not data then
+		return 0
+	end
+	local up = SeasonTrack.addStars(data.season, n * Config.STARS_PER_TIER, Config.STARS_PER_TIER)
+	ProgressService.markDirty(player)
+	ProgressService.sendState(player)
+	return up
 end
 
 function ProgressService.addBoost(data: any, minutes: number, mult: number)
@@ -484,6 +510,10 @@ function ProgressService.addReachPoints(reach: string, pts: number)
 	if pts <= 0 or not Names.reachIndex(reach) then
 		return
 	end
+	-- private servers don't count toward the public Reach standings (no farming)
+	if game.PrivateServerId ~= "" and game.PrivateServerOwnerId ~= 0 then
+		return
+	end
 	ReachStandings.add(ProgressService.reachTable, reach, pts)
 	local store = reachStore
 	if store then
@@ -623,15 +653,120 @@ local function equip(player: Player, slot: any, id: any): (boolean, string?)
 	if not data or type(slot) ~= "string" or type(id) ~= "string" then
 		return false, nil
 	end
-	if slot ~= "fade" and slot ~= "banner" and slot ~= "title" then
+	if slot ~= "title" and not table.find(Store.SLOTS, slot) then
 		return false, nil
 	end
-	if id ~= "" and id ~= "fade_gold" and not data.owned[id] then
+	local vipTag = id == "tag_vip" and slot == "nametag" and ProgressService.hasPass(player, "VIP")
+	if id ~= "" and id ~= "fade_gold" and not vipTag and not data.owned[id] then
 		return false, "Not owned yet."
+	end
+	local it = Store.byId[id]
+	if it and it.slot ~= slot then
+		return false, nil
 	end
 	data.equipped[slot] = id
 	ProgressService.markDirty(player)
 	ProgressService.sendState(player)
+	if slot == "nametag" or slot == "banner" then
+		ProgressService.applyNametag(player)
+	end
+	return true, nil
+end
+
+-- Custom nametag (Item Shop / Spire VIP) and Reach banner over the head. Short range, not
+-- always-on-top, so it never gives away positions in the arena.
+function ProgressService.applyNametag(player: Player)
+	local data = ProgressService.dataOf(player)
+	local char = player.Character
+	if not data or not char then
+		return
+	end
+	local head = char:FindFirstChild("Head")
+	if not head then
+		return
+	end
+	local old = head:FindFirstChild("DaybreakTag")
+	if old then
+		old:Destroy()
+	end
+	local id = data.equipped.nametag or ""
+	local color: string? = nil
+	if id == "tag_vip" and ProgressService.hasPass(player, "VIP") then
+		color = "#FFD36B"
+	elseif Store.byId[id] and data.owned[id] then
+		color = Store.byId[id].color
+	end
+	local banner = Store.byId[data.equipped.banner or ""]
+	if not color and not banner then
+		return
+	end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	end
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "DaybreakTag"
+	bb.Size = UDim2.new(0, 220, 0, 46)
+	bb.StudsOffset = Vector3.new(0, 2.4, 0)
+	bb.MaxDistance = 45
+	bb.AlwaysOnTop = false
+	local name = Instance.new("TextLabel")
+	name.BackgroundTransparency = 1
+	name.Size = UDim2.new(1, 0, 0, 26)
+	name.Font = Enum.Font.FredokaOne
+	name.TextScaled = true
+	name.TextStrokeTransparency = 0.4
+	name.TextColor3 = Color3.fromHex(color or "#FFFFFF")
+	name.Text = player.DisplayName
+	name.Parent = bb
+	if banner then
+		local b = Instance.new("TextLabel")
+		b.BackgroundTransparency = 1
+		b.Position = UDim2.new(0, 0, 0, 26)
+		b.Size = UDim2.new(1, 0, 0, 18)
+		b.Font = Enum.Font.GothamMedium
+		b.TextScaled = true
+		b.TextStrokeTransparency = 0.5
+		b.TextColor3 = Color3.fromHex("#E8D9B5")
+		b.Text = banner.icon .. " " .. banner.name
+		b.Parent = bb
+	end
+	bb.Parent = head
+end
+
+-- Emotes (B key): lobby, Gallery and podium only, never while you're fighting.
+local lastEmote: { [Player]: number } = {}
+local function emote(player: Player, id: any): (boolean, string?)
+	local data = ProgressService.dataOf(player)
+	if not data then
+		return false, nil
+	end
+	if type(id) ~= "string" or id == "" then
+		id = data.equipped.emote or ""
+	end
+	local it = Store.byId[id]
+	if not it or it.slot ~= "emote" or not data.owned[id] then
+		return false, "Pick an emote in the Locker first."
+	end
+	local mine = ctx.Match.contenderOf(player)
+	if mine and mine.alive and ctx.Match.state == "Arena" then
+		return false, "Emotes are for the lobby and the Gallery."
+	end
+	local t = os.clock()
+	if lastEmote[player] and t - lastEmote[player] < 3 then
+		return false, nil
+	end
+	lastEmote[player] = t
+	ctx.pushAll("emote", { user = player.UserId, icon = it.icon, name = it.name, color = it.color })
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	local animator = hum and hum:FindFirstChildOfClass("Animator")
+	if animator and it.anim and it.anim ~= 0 then
+		local a = Instance.new("Animation")
+		a.AnimationId = "rbxassetid://" .. it.anim
+		pcall(function()
+			animator:LoadAnimation(a):Play()
+		end)
+	end
 	return true, nil
 end
 
@@ -648,8 +783,19 @@ local function onLoaded(player: Player, profile: any, isNew: boolean)
 	local data = profile.data
 	ensurePeriodic(data)
 	ProgressService.runtime[player] = { passes = ctx.Purchase.loadPasses(player), dirty = false }
+	task.spawn(function()
+		ctx.Purchase.checkSubscription(player)
+		if player.Parent then
+			ProgressService.sendState(player)
+		end
+	end)
 	deliverLetters(player, data)
 	ProgressService.sendState(player)
+	player.CharacterAdded:Connect(function()
+		task.wait(1)
+		ProgressService.applyNametag(player)
+	end)
+	ProgressService.applyNametag(player)
 	if isNew then
 		ctx.toast(player, "Welcome to " .. Names.CAPITAL:gsub("^the ", "the ") .. ". Pick your home " .. Names.REGION .. " on the board!", "good")
 	end
@@ -670,6 +816,7 @@ function ProgressService.init(c: any)
 	ctx.handle("setting", setting)
 	ctx.handle("quip", setQuip)
 	ctx.handle("equip", equip)
+	ctx.handle("emote", emote)
 	ctx.handle("seenReaping", seenReaping)
 	ctx.handle("claimLetters", claimLetters)
 	ctx.handle("refresh", function(player: Player): (boolean, string?)
@@ -690,6 +837,7 @@ function ProgressService.start()
 		ctx.Match.onLeave(player)
 		ctx.Data.release(player)
 		ProgressService.runtime[player] = nil
+		lastEmote[player] = nil
 	end)
 	task.spawn(function()
 		while true do

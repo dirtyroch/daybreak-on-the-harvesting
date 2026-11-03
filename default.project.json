@@ -1,0 +1,61 @@
+{
+  "name": "DaybreakOnTheHarvesting",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Shared": { "$path": "src/shared" }
+    },
+    "ServerScriptService": {
+      "Server": { "$path": "src/server" }
+    },
+    "StarterPlayer": {
+      "$properties": { "CharacterWalkSpeed": 16, "CharacterJumpPower": 50 },
+      "StarterPlayerScripts": {
+        "Client": { "$path": "src/client" }
+      }
+    },
+    "Players": {
+      "$properties": { "CharacterAutoLoads": true, "RespawnTime": 3 }
+    },
+    "Lighting": {
+      "$properties": {
+        "ClockTime": 6.4,
+        "Brightness": 2.2,
+        "GlobalShadows": true,
+        "Ambient": [0.36, 0.34, 0.38],
+        "OutdoorAmbient": [0.5, 0.45, 0.48],
+        "ColorShift_Top": [1.0, 0.78, 0.55],
+        "EnvironmentDiffuseScale": 0.45,
+        "EnvironmentSpecularScale": 0.5
+      },
+      "Atmosphere": {
+        "$className": "Atmosphere",
+        "$properties": {
+          "Density": 0.34,
+          "Offset": 0.1,
+          "Color": [0.97, 0.7, 0.48],
+          "Decay": [0.42, 0.36, 0.5],
+          "Glare": 0.5,
+          "Haze": 1.6
+        }
+      },
+      "GildedDuskGrade": {
+        "$className": "ColorCorrectionEffect",
+        "$properties": { "TintColor": [1.0, 0.94, 0.88], "Saturation": 0.08, "Contrast": 0.1, "Brightness": -0.01 }
+      },
+      "SoftBloom": {
+        "$className": "BloomEffect",
+        "$properties": { "Intensity": 0.45, "Size": 24, "Threshold": 1.3 }
+      },
+      "DawnRays": {
+        "$className": "SunRaysEffect",
+        "$properties": { "Intensity": 0.08, "Spread": 0.7 }
+      }
+    },
+    "Workspace": {
+      "$properties": { "Gravity": 196.2 }
+    },
+    "SoundService": {},
+    "StarterGui": {}
+  }
+}

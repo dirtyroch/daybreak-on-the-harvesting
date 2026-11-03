@@ -1,0 +1,100 @@
+# 🌅 Daybreak on the Harvesting
+
+A Roblox battle royale for 48 contenders: 24 Reaches send two each, a mentor named Rusty walks you
+through the Draw, and everyone launches from lift plates around the Sundial into a 2,400-stud arena
+that the Veil slowly closes. Spectators in the Viewing Gallery send gifts, vote hazards and vote one
+knocked-out contender back in.
+
+> **Title warning.** "Daybreak on the Harvesting" is a word-for-word synonym swap of a well-known film
+> title. It may draw a trademark or impersonation takedown. Every player-facing name lives in
+> **`src/shared/Names.luau`** (the name-swap kit), so a rename is one file, one rebuild, one publish.
+
+## What's in v1
+
+| Area | Status |
+|---|---|
+| Lobby plaza, Draw stage, Rusty walk-up cutscene (skippable) | **Playable** |
+| Queue with Stand-In bots to fill to 48, auto-requeue, "Next match in 10s" | **Playable** |
+| Real 2,400-stud arena: Sundial hub + crates, Gilded Meadow, Mirror Lake, Whisperwood, Ashen Ridge, Old Glassford, open fields | **Playable** |
+| Combat (bow, knife, shove; spear melee), Pep health, snacks, loot crates, the Veil (shrinking, damage outside) | **Playable** |
+| Reach partners (allies until 4 remain), partner queue | **Playable** |
+| Viewing Gallery: Favor, parachute gifts, hazard ballots, Encore vote-back | **Playable** |
+| Kill-cam "how you got tapped", near-miss stats card, results + Play again | **Playable** |
+| Contender levels, prestige (★1-★4), daily/weekly challenges, carry-over match streak, daily streak | **Playable** |
+| Free Season Track + premium cosmetic lane (no randomness), Reach loyalty standings, Jubilee Tokens, Rusty gifts | **Playable** |
+| Rotating twists and weekly Jubilee rules | **Playable** |
+| Shop: passes/products with IDs at 0 (hidden live; free "Studio test" grant) | **Playable in Studio** |
+| Parade, interview, training range | **Stubbed** (cards only) |
+| Food/water meters, spear throw, Veil Breaker finale | **Stubbed** |
+| Cross-server matchmaking (`Config.Matchmaking.crossServer = false`) | **Stubbed**: one server runs lobby + arena |
+| Encore re-award at the podium | **Known gap**: a revived contender who was already awarded at knockout is skipped |
+| Stamina | Client-side only in v1 |
+
+v1 has not been play-tested in live Roblox Studio yet. Everything below passes on the command line.
+
+## Project layout
+
+```
+src/shared/Names.luau        name-swap kit (title, world, NPCs, currencies)
+src/shared/Config.luau       tuning: match size, Veil, loot, XP, streaks, gallery
+src/shared/Content.luau      challenges, season tiers, tokens, quips, Rusty gifts
+src/shared/Monetization.luau every Robux ID (all 0) and fair-play rules
+src/shared/MapBuilder.luau   builds lobby, arena and gallery (baked into the .rbxlx)
+src/shared/Logic/*           pure, unit-tested game rules
+src/server/Services/*        Data, Match, Bot, Gallery, Progress, Purchase
+src/client/*                 HUD, panels, cutscene, results, gallery UI
+tests/run.luau               Lune test runner
+scripts/build.sh             rojo build + bake the map
+ci/github-actions-ci.yml     CI workflow (copy to .github/workflows/ to enable)
+marketing/                   icon + thumbnails rendered from the real map
+```
+
+## Build, lint and test
+
+Tools are pinned in `rokit.toml` (rojo, selene, lune, luau-lsp).
+
+```bash
+rokit install
+selene generate-roblox-std && selene src tests scripts
+lune run tests/run
+curl -sSL -o globalTypes.d.luau https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/main/scripts/globalTypes.d.luau
+rojo sourcemap default.project.json -o sourcemap.json
+luau-lsp analyze --definitions=globalTypes.d.luau --sourcemap=sourcemap.json src
+./scripts/build.sh          # -> DaybreakOnTheHarvesting.rbxlx (map baked in)
+```
+
+Open `DaybreakOnTheHarvesting.rbxlx` in Studio, or `rojo serve` for live sync. See
+[PUBLISHING.md](PUBLISHING.md) for the no-code publish steps.
+
+## Why it's sticky (and still fair)
+
+The loop: Draw ceremony (about 38 s, or 3 s when skipped) → 10 s launch → a match of up to 12 min → results with kill-cam and near-miss card → "Next match
+in 10s" with the match streak carried over. Around it sit daily/weekly challenges, a free Season Track,
+contender levels with prestige, Reach loyalty banners, Jubilee Tokens hidden in the arena, Rusty's
+gifts, partner queue, rotating twists and weekly rules, and the Gallery Encore so a knockout isn't the
+end of your match.
+
+Fair Play rules are enforced by tests:
+- No paid random items, anywhere. Crates are free and in the arena.
+- Calm copy only: no countdown pressure, no "last chance", no FOMO in the shop.
+- The premium lane never sells tiers or Stars. Favor is never sold.
+- Two passes (Starter Satchel, Trail Boots) give small casual-only perks; both are also free on the
+  Season Track.
+
+## IP guardrails
+
+The world is original: Halcyon, the Spire, the Reaches, the Sundial, the Veil, Rusty Dunmore, Herald
+Marigold Vane. Tests fail if any source file names the franchise, its places or characters, or
+hard-codes the title outside `Names.luau`. Knockouts are a light-dissolve "tapped out", never death or
+blood.
+
+## Cross-server (later)
+
+v1 runs lobby and arena in one server and fills with Stand-Ins. To split them, set
+`Config.Matchmaking.crossServer = true` and wire MemoryStore queues + `TeleportService:ReserveServer` in
+MatchService (the Queue logic module is already server-agnostic).
+
+## CI
+
+`ci/github-actions-ci.yml` runs lint, tests, type check and build. It lives under `ci/` so it can be
+pushed without the GitHub `workflow` scope; move it to `.github/workflows/ci.yml` to turn it on.

@@ -1,0 +1,4 @@
+sourcemap.json
+globalTypes.d.luau
+*.rbxlx.lock
+.DS_Store

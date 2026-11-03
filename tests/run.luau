@@ -40,6 +40,11 @@ local Meters = require("../src/shared/Logic/Meters")
 local Throw = require("../src/shared/Logic/Throw")
 local Look = require("../src/shared/Look")
 local MapBuilder = require("../src/shared/MapBuilder")
+local Arms = require("../src/shared/Arms")
+local Anim = require("../src/shared/Anim")
+local Mastery = require("../src/shared/Mastery")
+local Offers = require("../src/shared/Offers")
+local Season2 = require("../src/shared/Season2")
 local roblox = require("@lune/roblox")
 
 local passed, failed = 0, 0
@@ -820,31 +825,34 @@ test("every shop price has a Shop tier product, ladder spans R$25 to R$1999", fu
 	end
 	local ladder = Monetization.ladder(Store.TIERS)
 	eq(ladder[1], 25)
-	truthy(ladder[#ladder] >= 1999)
+	truthy(ladder[#ladder] >= 4999)
 	truthy(#ladder >= 12, "price points")
 end)
 test("weekly rotation is deterministic and covers every rotating item each cycle", function()
 	local cycle = Store.cycleWeeks()
 	truthy(cycle >= 2)
-	local w = Store.week(1793000000)
-	local a, b = Store.rotation(w), Store.rotation(w)
-	eq(#a, Store.FEATURED_PER_WEEK)
-	for i = 1, #a do
-		eq(a[i].id, b[i].id)
-	end
-	local seen = {}
-	for k = 0, cycle - 1 do
-		for _, it in ipairs(Store.rotation(w + k)) do
-			seen[it.id] = true
+	-- before launch (base pool), and after the authored Season 1 weeks (drops included)
+	for _, w in ipairs({ Store.week(1793000000), Store.SEASON1_START_WEEK + #Store.SCHEDULE + 3 }) do
+		local a, b = Store.rotation(w), Store.rotation(w)
+		eq(#a, Store.FEATURED_PER_WEEK)
+		for i = 1, #a do
+			eq(a[i].id, b[i].id)
 		end
+		local c = Store.cycleWeeksAt(w)
+		local seen = {}
+		for k = 0, c - 1 do
+			for _, it in ipairs(Store.rotation(w + k)) do
+				seen[it.id] = true
+			end
+		end
+		for _, it in ipairs(Store.rotatingPool(w >= Store.SEASON1_START_WEEK)) do
+			truthy(seen[it.id], it.id .. " never rotates in")
+			local nw = Store.nextWeek(it.id, w)
+			truthy(nw ~= nil and nw - w < c + 1, it.id .. " next week")
+		end
+		-- week boundaries are Mondays 00:00 UTC
+		eq(os.date("!%A %H:%M", Store.weekStart(w)), "Monday 00:00")
 	end
-	for _, it in ipairs(Store.rotatingPool()) do
-		truthy(seen[it.id], it.id .. " never rotates in")
-		local nw = Store.nextWeek(it.id, w)
-		truthy(nw ~= nil and nw - w < cycle + 1, it.id .. " next week")
-	end
-	-- week boundaries are Mondays 00:00 UTC
-	eq(os.date("!%A %H:%M", Store.weekStart(w)), "Monday 00:00")
 end)
 test("items: owned or out of rotation can't be bought, with an honest reason", function()
 	local w = Store.week(1793000000)
@@ -855,7 +863,7 @@ test("items: owned or out of rotation can't be bought, with an honest reason", f
 	local ok, why = Store.canReceive(o :: any, { [inRot.id] = true }, w, {})
 	truthy(not ok and why == "Already owned.")
 	local out = nil
-	for _, it in ipairs(Store.rotatingPool()) do
+	for _, it in ipairs(Store.rotatingPool(false)) do
 		if not Store.inRotation(it.id, w) then
 			out = it
 			break
@@ -863,6 +871,10 @@ test("items: owned or out of rotation can't be bought, with an honest reason", f
 	end
 	local ok2, why2 = Store.canReceive(Store.offer("item", out.id) :: any, {}, w, {})
 	truthy(not ok2 and tostring(why2):find("Back in the shop in", 1, true) ~= nil)
+	-- a weekly drop before its week says when it arrives
+	local early = Store.SEASON1_START_WEEK
+	local ok3, why3 = Store.canReceive(Store.offer("item", "skin_spear_regent") :: any, {}, early, {})
+	truthy(not ok3 and tostring(why3):find("Arrives in 8 weeks", 1, true) ~= nil, tostring(why3))
 end)
 test("bundles are only offered while still a real saving; starter is once per account", function()
 	local b = Store.bundle("arms_locker")
@@ -927,7 +939,7 @@ test("pay-to-win guard: boosts are casual-only and perks switch off at the end",
 		truthy(not d:find("damage", 1, true) or d:find("same damage", 1, true), k .. " mentions damage")
 	end
 	for _, it in ipairs(Store.ITEMS) do
-		truthy(it.slot ~= "" and Store.tierKey(it.price) ~= nil)
+		truthy(it.slot ~= "" and (it.earned or Store.tierKey(it.price) ~= nil))
 	end
 end)
 test("subscription needs policy eligibility; fails closed", function()
@@ -958,6 +970,177 @@ test("v3 save fields reconcile into old saves", function()
 	truthy(type(d.vouchers) == "table" and type(d.buyLog) == "table")
 	eq(d.equipped.bow, "")
 	eq(d.patronMonth, -1)
+end)
+
+-- ===== v4 =====
+local ENV = { Instance = roblox.Instance, Vector3 = roblox.Vector3, CFrame = roblox.CFrame, Color3 = roblox.Color3, Enum = roblox.Enum, UDim2 = roblox.UDim2, NumberSequence = roblox.NumberSequence, NumberRange = roblox.NumberRange, ColorSequence = roblox.ColorSequence, Vector2 = roblox.Vector2 }
+test("v4 arms: every weapon skin builds a distinct held mesh from parts", function()
+	for _, slot in ipairs({ "bow", "spear", "knife" }) do
+		local seen = {}
+		for id in pairs(Arms.SKINS[slot]) do
+			local spec = Arms.spec(slot, id ~= "" and id or nil, 0)
+			local sig = Arms.signature(spec)
+			truthy(not seen[sig], slot .. " skin " .. id .. " looks the same as " .. tostring(seen[sig]))
+			seen[sig] = id
+			local m = Arms.build(ENV, spec, roblox.CFrame.new())
+			truthy(m.PrimaryPart ~= nil, id .. " has a grip")
+			truthy(#m:GetChildren() >= 3, id .. " is built from several parts")
+		end
+	end
+	for _, it in ipairs(Store.ITEMS) do
+		if it.slot == "bow" or it.slot == "spear" or it.slot == "knife" then
+			truthy(Arms.SKINS[it.slot][it.id] ~= nil, it.id .. " has a held mesh")
+		end
+	end
+end)
+test("v4 anim: clips validate; every pose/emote item has a clip", function()
+	eq(#Anim.validate(), 0, table.concat(Anim.validate(), "; "))
+	for _, it in ipairs(Store.ITEMS) do
+		if it.slot == "pose" or it.slot == "emote" then
+			local clip = it.clip or it.id
+			truthy(Anim.CLIPS[clip] ~= nil, it.id .. " has clip " .. clip)
+		end
+	end
+	truthy(Anim.CLIPS[Anim.DEFAULT_POSE] ~= nil)
+	local pose = Anim.sample(Anim.CLIPS.emote_twirl, 0.5)
+	truthy(next(pose) ~= nil, "sampling returns joint rotations")
+end)
+test("v4 mastery: levels, perks and the patron multiplier", function()
+	eq(Mastery.level(0), 0)
+	eq(Mastery.level(Mastery.THRESHOLDS[1]), 1)
+	eq(Mastery.level(999), Mastery.MAX)
+	local book = {}
+	local k = Mastery.key("bow", "skin_bow_harvest")
+	local pts, up = Mastery.add(book, k, 4, false)
+	eq(pts, 4)
+	truthy(not up)
+	pts, up = Mastery.add(book, k, 1, false)
+	truthy(up, "crossing a threshold levels up")
+	local pb = {}
+	eq((Mastery.add(pb, k, 2, true)), 3, "patrons earn 1.5x")
+	eq(#Mastery.PERKS, Mastery.MAX)
+	eq(Mastery.key("bow", nil), "bow:default")
+end)
+test("v4 drops: six weekly drops (season weeks 4-9) on a fixed schedule, each released by its week", function()
+	local drops = {}
+	for _, it in ipairs(Store.ITEMS) do
+		if it.drop then
+			drops[it.drop] = (drops[it.drop] or 0) + 1
+			truthy(not Store.released(it, Store.SEASON1_START_WEEK + it.drop + 1), it.id .. " is hidden before its week")
+			truthy(Store.released(it, Store.SEASON1_START_WEEK + it.drop + 2), it.id .. " releases in its week")
+		end
+	end
+	for d = 1, 6 do
+		eq(drops[d], 3, "drop " .. d .. " has three items")
+	end
+	for w = 0, #Store.SCHEDULE - 1 do
+		local wk = Store.SEASON1_START_WEEK + w
+		for _, it in ipairs(Store.rotation(wk)) do
+			truthy(Store.released(it, wk), it.id .. " sold before release in week " .. w + 1)
+		end
+		if w >= 3 then
+			eq(Store.dropOf(wk), w - 2)
+		else
+			eq(Store.dropOf(wk), nil)
+		end
+	end
+	eq(#Store.validate(), 0, table.concat(Store.validate(), "; "))
+end)
+test("v4 grand collection: R$4,999 and a real saving", function()
+	local b = Store.bundle("grand_s1")
+	truthy(b ~= nil)
+	eq(b.price, 4999)
+	truthy(Store.value(b, nil) > b.price * 1.2, "worth well over its price: " .. Store.value(b, nil))
+	truthy(table.find(Store.TIERS, 4999) ~= nil)
+	local shop4999 = false
+	for _, p in pairs(Monetization.Products) do
+		if p.price == 4999 and p.category == "Shop" then
+			shop4999 = true
+		end
+	end
+	truthy(shop4999, "a R$4,999 developer product exists for the shop")
+end)
+test("v4 earned items are never sold, offered or bundled", function()
+	for _, it in ipairs(Store.ITEMS) do
+		if it.earned then
+			eq(it.price, 0, it.id)
+			truthy(not it.rot, it.id .. " not in rotation")
+			eq(Store.offer("item", it.id), nil, it.id .. " has no offer")
+		end
+	end
+	for _, b in ipairs(Store.BUNDLES) do
+		for _, id in ipairs(b.items) do
+			local it = Store.byId[id]
+			truthy(it and not it.earned, b.id .. " sells earned " .. id)
+		end
+	end
+	for m = 1, 12 do
+		local id = Store.memberItemFor(202600 + m)
+		truthy(Store.byId[id] and Store.byId[id].earned, "member item " .. id)
+	end
+	truthy(Store.memberItemFor(202601) ~= Store.memberItemFor(202602), "member item changes monthly")
+end)
+test("v4 offers: calm cards, one fade at most, nothing without a knockout", function()
+	local wk = Store.SEASON1_START_WEEK + 2
+	eq(Offers.fadePreview({}, wk, 0), nil, "no knockout, no preview")
+	local c = Offers.fadePreview({}, wk, 2)
+	if c then
+		truthy(Store.inRotation(c.itemId, wk))
+		truthy(Offers.calm(c), "fade card is calm")
+		local owned = { [c.itemId] = true }
+		local c2 = Offers.fadePreview(owned, wk, 2)
+		truthy(not c2 or c2.itemId ~= c.itemId, "never previews an owned fade")
+	end
+	truthy(Offers.calm(Offers.firstWin("Ava")))
+	truthy(Offers.calm(Offers.partnerCard("Ava", "Bandage", 6, 2, nil)))
+	truthy(Offers.calm(Offers.partnerCard("Ava", "Bandage", 6, 20, "Harvest Wrap")))
+	truthy(Offers.partnerMoment(9, 100, 100) and Offers.partnerMoment(30, 30, 100) and not Offers.partnerMoment(30, 90, 100))
+	eq(Offers.MAX_PER_SESSION, 2)
+end)
+test("v4 season 2 skeleton: no id clashes, tier prices, a full track", function()
+	for _, it in ipairs(Season2.ITEMS) do
+		truthy(Store.byId[it.id] == nil, it.id .. " clashes with Season 1")
+		truthy(table.find(Store.TIERS, it.price) ~= nil, it.id .. " price is a tier")
+	end
+	truthy(#Season2.TRACK >= 6 and #Season2.ITEMS >= 12)
+	eq(Season2.GRAND_PRICE, 4999)
+end)
+test("v4 fades and Rusty voice: styles known, babble deterministic", function()
+	for id, f in pairs(Content.FADES) do
+		truthy(table.find(Content.FADE_STYLES, f.style or "") ~= nil, id .. " style " .. tostring(f.style))
+	end
+	local a = Content.babble("Hold the line, kid.", "rusty_gala")
+	local b = Content.babble("Hold the line, kid.", "rusty_gala")
+	eq(#a, #b)
+	truthy(#a > 0 and a[1].pitch == b[1].pitch)
+	for _, pk in ipairs(Content.RUSTY_PACKS) do
+		local id = type(pk) == "table" and pk.id or pk
+		truthy(Content.rustyVoice(id) ~= nil)
+	end
+end)
+test("v4 copy: drop names, item descriptions and Season 2 avoid pressure words", function()
+	local texts = {}
+	for _, n in pairs(Store.DROP_NAMES) do
+		table.insert(texts, n)
+	end
+	for _, it in ipairs(Store.ITEMS) do
+		table.insert(texts, it.name .. " " .. (it.desc or ""))
+	end
+	for _, b in ipairs(Store.BUNDLES) do
+		table.insert(texts, b.name .. " " .. b.desc)
+	end
+	for _, t in ipairs(texts) do
+		for _, w in ipairs(Store.PRESSURE_WORDS) do
+			truthy(not t:lower():find(w, 1, true), t .. " says " .. w)
+		end
+	end
+end)
+test("v4 save fields reconcile into old saves", function()
+	local old = { owned = {}, equipped = { fade = "fade_gold", title = "" } }
+	local d = Reconcile.fill(old, DefaultData.new())
+	truthy(type(d.mastery) == "table" and type(d.dailyTen) == "table" and type(d.referral) == "table" and type(d.offers) == "table")
+	eq(d.dailyTen.claimed, false)
+	truthy(Config.DailyTen.seconds == 600 and Config.Invites.reward == "sash_torchbearer")
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

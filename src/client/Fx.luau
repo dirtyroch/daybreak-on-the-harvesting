@@ -12,6 +12,7 @@ local root: Frame = nil :: any
 local toasts: Frame = nil :: any
 local banner: TextLabel = nil :: any
 local flash: Frame = nil :: any
+local feedBox: Frame = nil :: any
 
 function Fx.mount(parent: Frame)
 	root = parent
@@ -30,6 +31,8 @@ function Fx.mount(parent: Frame)
 		ZIndex = 20,
 		Parent = root,
 	})
+	feedBox = UI.frame({ Name = "KillFeed", BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 120), Size = UDim2.new(0, 300, 0, 140), Parent = root })
+	UI.list(feedBox, nil, 4)
 	flash = UI.frame({ Name = "HitFlash", BackgroundColor3 = T.red, BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 1, Active = false, Parent = root })
 end
 
@@ -96,8 +99,27 @@ function Fx.hit()
 	TweenService:Create(flash, TweenInfo.new(0.35), { BackgroundTransparency = 1 }):Play()
 end
 
--- A glowing arrow streak from bow to target.
-function Fx.tracer(from: Vector3, to: Vector3, color: string?)
+-- One line in the top-right kill feed (max 4, each fades after 5 s).
+function Fx.feed(text: string, color: string?)
+	if not feedBox then
+		return
+	end
+	local l = UI.label(text, { Size = UDim2.new(1, 0, 0, 22), TextSize = 14, Font = T.body, TextXAlignment = Enum.TextXAlignment.Right, TextStrokeTransparency = 0.5, TextColor3 = color and Color3.fromHex(color) or T.text, Parent = feedBox })
+	TweenService:Create(l, TweenInfo.new(1, Enum.EasingStyle.Linear, Enum.EasingDirection.In, 0, false, 4), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	Debris:AddItem(l, 5)
+	local lines = {}
+	for _, c in ipairs(feedBox:GetChildren()) do
+		if c:IsA("TextLabel") then
+			table.insert(lines, c)
+		end
+	end
+	if #lines > 4 then
+		lines[1]:Destroy()
+	end
+end
+
+-- A glowing arrow streak from bow to target. Mastered skins (bright) draw a wider, longer streak.
+function Fx.tracer(from: Vector3, to: Vector3, color: string?, bright: boolean?)
 	local d = (to - from).Magnitude
 	if d < 1 then
 		return
@@ -109,11 +131,13 @@ function Fx.tracer(from: Vector3, to: Vector3, color: string?)
 	p.CanTouch = false
 	p.Material = Enum.Material.Neon
 	p.Color = Color3.fromHex(color or "#FFE9A8")
-	p.Size = Vector3.new(0.15, 0.15, d)
+	local w = bright and 0.3 or 0.15
+	p.Size = Vector3.new(w, w, d)
 	p.CFrame = CFrame.lookAt(from:Lerp(to, 0.5), to)
 	p.Parent = workspace
-	TweenService:Create(p, TweenInfo.new(0.3), { Transparency = 1 }):Play()
-	Debris:AddItem(p, 0.35)
+	local life = bright and 0.5 or 0.3
+	TweenService:Create(p, TweenInfo.new(life), { Transparency = 1 }):Play()
+	Debris:AddItem(p, life + 0.05)
 end
 
 -- A floating bubble over someone's head (emotes and Gallery cheers).

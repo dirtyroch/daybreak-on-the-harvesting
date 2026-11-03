@@ -21,6 +21,7 @@ local Vote = require(Shared.Logic.Vote)
 local Twists = require(Shared.Logic.Twists)
 local Training = require(Shared.Logic.Training)
 local Store = require(Shared.Store)
+local Offers = require(Shared.Offers)
 
 local GalleryService = {}
 local ctx: any = nil
@@ -40,6 +41,8 @@ local live = false
 local function now(): number
 	return workspace:GetServerTimeNow()
 end
+local partnerMoments: () -> ()
+local partnerShown: { [Player]: boolean } = {}
 
 function GalleryService.isSpectator(p: Player): boolean
 	return spectators[p] ~= nil
@@ -198,7 +201,20 @@ function GalleryService.view(p: Player): any
 		if c and c.alive then
 			local isPartner = mine ~= nil and mine.partner == c.id
 			local under = Training.giftMult(c.training, Config.Training.underdogAt, Config.Training.underdogGiftMult) < 1
-			table.insert(alive, { id = c.id, name = c.name, reach = c.reach, pep = c.pep, partner = isPartner, bot = c.kind == "bot", underdog = under, training = c.training })
+			-- v4: spectators see each contender's equipped cosmetics (weapon skin + Mastery, fade)
+			local held = c.inv and c.inv[c.equipped] or "bow"
+			local slot = (held == "spear" or held == "knife") and held or "bow"
+			local skin, lvl = ctx.Match.looksOf(c, slot)
+			local sk = Store.byId[skin]
+			local fade = c.player and ctx.Match.fadeOf(c, nil) or "fade_gold"
+			local look = {
+				weapon = sk and sk.name or ("Default " .. slot),
+				weaponColor = sk and sk.color or nil,
+				stars = lvl >= 5 and "✦" or string.rep("★", lvl),
+				fade = Content.FADES[fade] and Content.FADES[fade].name or nil,
+				fadeColor = Content.FADES[fade] and Content.FADES[fade].color or nil,
+			}
+			table.insert(alive, { id = c.id, name = c.name, reach = c.reach, pep = c.pep, partner = isPartner, bot = c.kind == "bot", underdog = under, training = c.training, look = look })
 		end
 	end
 	local gifts = {}
@@ -350,6 +366,7 @@ local function vote(player: Player, kind: any, option: any): (boolean, string?)
 end
 
 function GalleryService.onArenaStart()
+	table.clear(partnerShown)
 	live = true
 	lastGift = {}
 	inAir = 0
@@ -364,6 +381,35 @@ function GalleryService.onArenaEnd()
 	hazardBallot = nil
 	encoreBallot = nil
 	pushViews()
+end
+
+-- v4: the Gallery partner moment. Once a match, when your partner reaches the last 10 or runs
+-- low on Pep, a calm card offers a Favor gift (earned currency, never Robux).
+partnerMoments = function()
+	local M = ctx.Match
+	local alive = M.aliveCount()
+	for p, s in pairs(spectators) do
+		if not partnerShown[p] then
+			local mine = M.contenderOf(p)
+			local partner = mine and mine.partner and M.contenders[mine.partner]
+			if partner and partner.alive and Offers.partnerMoment(alive, partner.pep, Config.PEP_MAX) then
+				partnerShown[p] = true
+				local g = Config.Gifts[1]
+				for _, x in ipairs(Config.Gifts) do
+					if x.id == (partner.pep <= Config.PEP_MAX * 0.35 and "bandage" or "water") then
+						g = x
+					end
+				end
+				local cost = Gifts.cost(g.cost, alive, true, Config.Gallery.partnerDiscount, Twists.mod({ M.weekly }, "giftCost", 1))
+				local wid = (ctx.Progress.dataOf(p) or { equipped = {} }).equipped.wrap
+				local w = Store.byId[wid or ""]
+				local card = Offers.partnerCard(partner.name, g.name, cost, s.favor, w and w.name or nil)
+				card.target = partner.id
+				card.gift = g.id
+				ctx.push(p, "partnerMoment", card)
+			end
+		end
+	end
 end
 
 local function tick()
@@ -424,6 +470,7 @@ local function tick()
 			ctx.pushAll("vote", { kind = "encore", seconds = E.length })
 		end
 	end
+	partnerMoments()
 	pushViews()
 end
 

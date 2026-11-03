@@ -32,11 +32,14 @@ export type Item = {
 	anim: number?, -- Studio animation asset id for poses/emotes (0 = built-in fallback effect)
 	sound: number?, -- Studio audio id for Rusty voice packs (0 = text lines only)
 	shopOnly: boolean?,
+	drop: number?, -- weekly drop number (1..6): joins the shop that week of Season 1, then rotates
+	earned: boolean?, -- never sold: first win, member monthly, Patron Club, invites
+	clip: string?, -- Anim.CLIPS key for poses/emotes when it differs from the id
 }
 export type Bundle = { id: string, name: string, price: number, icon: string, desc: string, items: { string }, once: boolean? }
 
--- One developer product per price point. Covers R$25 to R$1,999.
-Store.TIERS = { 25, 49, 99, 149, 199, 299, 399, 499, 799, 1299, 1999 }
+-- One developer product per price point. Covers R$25 to R$4,999.
+Store.TIERS = { 25, 49, 99, 149, 199, 299, 399, 499, 799, 1299, 1999, 4999 }
 Store.FEATURED_PER_WEEK = 6
 Store.WEEK = 604800
 Store.EPOCH_MONDAY = 345600 -- Monday 5 Jan 1970 00:00 UTC
@@ -45,8 +48,8 @@ Store.CATS = { "Arms", "Fades", "Poses", "Emotes", "Wraps", "Nametags", "Parade"
 Store.SLOTS = { "bow", "spear", "knife", "fade", "pose", "emote", "wrap", "nametag", "parade", "rusty", "banner" }
 
 local items: { Item } = {
-	-- Arms: weapon skins. Same stats, new look: the arrow / spear streak everyone sees, the hotbar
-	-- tile and the kill-feed icon. (Held 3D models need MeshParts from Studio; see PUBLISHING §11.)
+	-- Arms: weapon skins. Same stats, new look: the held model built from parts (Arms.luau), the
+	-- arrow / spear streak everyone sees, the hotbar tile and the kill-feed icon.
 	{ id = "skin_bow_ashen", name = "Ashwood Bow", cat = "Arms", slot = "bow", price = 99, icon = "🏹", color = "#C9B79C", desc = "Pale ash with a dark grip. Same stats, new look.", rot = false },
 	{ id = "skin_bow_gilded", name = "Gilded Bow", cat = "Arms", slot = "bow", price = 199, icon = "🏹", color = "#FFD36B", desc = "Gold-leaf limbs and a warm gold arrow streak. Same stats.", rot = false },
 	{ id = "skin_bow_mirror", name = "Mirrorwood Bow", cat = "Arms", slot = "bow", price = 149, icon = "🏹", color = "#BFE7FF", desc = "Polished like Mirror Lake. Silver streak. Same stats.", rot = true },
@@ -91,7 +94,50 @@ local items: { Item } = {
 	{ id = "rusty_thermos", name = "Rusty's Brass Thermos", cat = "Rusty", slot = "rusty", price = 99, icon = "🫖", color = "#C9A04E", desc = "Rusty carries a polished brass thermos and toasts your wins.", rot = false, sound = 0 },
 	{ id = "rusty_stories", name = "Rusty: Old Stories", cat = "Rusty", slot = "rusty", price = 149, icon = "📖", color = "#C98B4E", desc = "Rusty tells tales from his own Trials between matches.", rot = false, sound = 0 },
 	{ id = "rusty_coach", name = "Rusty: Coach Mode", cat = "Rusty", slot = "rusty", price = 149, icon = "📣", color = "#E8D9B5", desc = "Rusty shouts practical tips from the Gallery.", rot = true, sound = 0 },
+
+	-- ===== Season 1 weekly drops (pre-authored; see Store.SCHEDULE) =====
+	-- Drop 1: Harvest Moon
+	{ id = "skin_bow_harvest", name = "Harvest Moon Bow", cat = "Arms", slot = "bow", price = 299, icon = "🏹", color = "#E9C46A", desc = "Dark oak, wheat-gold leaves and a harvest-gold streak. Same stats.", rot = true, drop = 1 },
+	{ id = "emote_harvest", name = "Harvest Lift", cat = "Emotes", slot = "emote", price = 99, icon = "🌾", color = "#E9C46A", desc = "Gather an armful of wheat and lift it to the sky.", rot = true, drop = 1, anim = 0 },
+	{ id = "wrap_harvest", name = "Harvest Moon Wrap", cat = "Wraps", slot = "wrap", price = 99, icon = "🌕", color = "#F2B84B", desc = "Your gifts drift down under a harvest moon canopy.", rot = true, drop = 1 },
+	-- Drop 2: Wheatsheaf
+	{ id = "skin_spear_wheat", name = "Wheatsheaf Spear", cat = "Arms", slot = "spear", price = 299, icon = "🗡️", color = "#D9B45A", desc = "A gold head bound with wheat ears and a ribbon. Same stats.", rot = true, drop = 2 },
+	{ id = "pose_reaper", name = "Harvest Kneel", cat = "Poses", slot = "pose", price = 199, icon = "🧎", color = "#D9B45A", desc = "Drop to one knee on the podium, weapon raised.", rot = true, drop = 2, anim = 0 },
+	{ id = "tag_wheat", name = "Wheatsheaf Nametag", cat = "Nametags", slot = "nametag", price = 149, icon = "🏷️", color = "#E9C46A", desc = "Your name in warm wheat gold.", rot = true, drop = 2 },
+	-- Drop 3: Comet Night
+	{ id = "skin_bow_comet", name = "Comet Night Bow", cat = "Arms", slot = "bow", price = 399, icon = "🏹", color = "#9DB4FF", desc = "Midnight limbs, crystal tips and a pale blue comet streak. Same stats.", rot = true, drop = 3 },
+	{ id = "fade_comet", name = "Comet Tail", cat = "Fades", slot = "fade", price = 199, icon = "☄️", color = "#9DB4FF", desc = "Knockouts streak up into the sky like a comet.", rot = true, drop = 3 },
+	{ id = "emote_clap", name = "Gallery Applause", cat = "Emotes", slot = "emote", price = 49, icon = "👏", color = "#E8D9B5", desc = "A round of applause for a great match.", rot = true, drop = 3, anim = 0 },
+	-- Drop 4: Lantern Festival
+	{ id = "skin_knife_lantern", name = "Lantern Knife", cat = "Arms", slot = "knife", price = 149, icon = "🔪", color = "#FFC86B", desc = "A pale marble blade with a glowing lantern guard. Same stats.", rot = true, drop = 4 },
+	{ id = "pose_moon", name = "Moon Lantern", cat = "Poses", slot = "pose", price = 299, icon = "🏮", color = "#FFC86B", desc = "Raise a lantern to the moon on the podium.", rot = true, drop = 4, anim = 0 },
+	{ id = "parade_lantern", name = "Lantern Parade Robe", cat = "Parade", slot = "parade", price = 199, icon = "🥻", color = "#FFC86B", desc = "A robe hung with tiny paper lanterns for the parade.", rot = true, drop = 4 },
+	-- Drop 5: Gallery Gala
+	{ id = "fade_petals", name = "Petal Storm", cat = "Fades", slot = "fade", price = 149, icon = "🌸", color = "#FF9EC7", desc = "Knockouts burst into a swirl of petals.", rot = true, drop = 5 },
+	{ id = "wrap_gala", name = "Gala Ribbon Wrap", cat = "Wraps", slot = "wrap", price = 149, icon = "🎀", color = "#FF7AB6", desc = "A velvet canopy with a gala ribbon.", rot = true, drop = 5 },
+	{ id = "rusty_gala", name = "Rusty: Gala Host", cat = "Rusty", slot = "rusty", price = 149, icon = "🎩", color = "#E8D9B5", desc = "Rusty hosts the Gallery like a gala night.", rot = true, drop = 5, sound = 0 },
+	-- Drop 6: Regent's Return
+	{ id = "skin_spear_regent", name = "Regent's Spear", cat = "Arms", slot = "spear", price = 499, icon = "🗡️", color = "#FFD36B", desc = "Gold leaf head, crimson shaft and a sunset ribbon. Same stats.", rot = true, drop = 6 },
+	{ id = "tag_regent", name = "Regent Nametag", cat = "Nametags", slot = "nametag", price = 199, icon = "🏷️", color = "#FFB347", desc = "Your name in sunset gold.", rot = true, drop = 6 },
+	{ id = "fade_sunburst", name = "Sunburst", cat = "Fades", slot = "fade", price = 299, icon = "🌞", color = "#FFB347", desc = "Knockouts flare out in rings of sunrise light.", rot = true, drop = 6 },
+
+	-- ===== Earned only (never sold) =====
+	{ id = "pose_firstlight", name = "First Light", cat = "Poses", slot = "pose", price = 0, icon = "🌅", color = "#FFD36B", desc = "Earned with your first win. Raise the dawn on the podium.", rot = false, earned = true, anim = 0 },
+	{ id = "emote_patron", name = "Patron's Flourish", cat = "Emotes", slot = "emote", price = 0, icon = "📜", color = "#C9A04E", desc = "A Patron Club thank-you: a sweeping courtly bow.", rot = false, earned = true, anim = 0 },
+	{ id = "sash_torchbearer", name = "Torchbearer Sash", cat = "Parade", slot = "parade", price = 0, icon = "🔥", color = "#FF8A4C", desc = "For bringing a friend into a match (you both get one).", rot = false, earned = true },
+	{ id = "tag_member_dawn", name = "Member Dawn Nametag", cat = "Nametags", slot = "nametag", price = 0, icon = "➕", color = "#FFC2A1", desc = "A monthly thank-you for Roblox Plus members.", rot = false, earned = true },
+	{ id = "wrap_member_silver", name = "Member Silver Wrap", cat = "Wraps", slot = "wrap", price = 0, icon = "➕", color = "#D7E6EE", desc = "A monthly thank-you for Roblox Plus members.", rot = false, earned = true },
+	{ id = "banner_member_spire", name = "Member Spire Banner", cat = "Reach", slot = "banner", price = 0, icon = "➕", color = "#BFE7FF", desc = "A monthly thank-you for Roblox Plus members.", rot = false, earned = true },
+	{ id = "emote_member_cheer", name = "Member Cheer", cat = "Emotes", slot = "emote", price = 0, icon = "➕", color = "#FFE9A8", desc = "A monthly thank-you for Roblox Plus members.", rot = false, earned = true, anim = 0, clip = "emote_clap" },
 }
+
+-- Free monthly cosmetic for Roblox Plus (and legacy Premium) members: a fixed list by month,
+-- never random. Month 1 = January.
+Store.MEMBER_MONTHLY = { "tag_member_dawn", "wrap_member_silver", "banner_member_spire", "emote_member_cheer" }
+function Store.memberItemFor(yyyymm: number): string
+	local m = yyyymm % 100
+	return Store.MEMBER_MONTHLY[((m - 1) % #Store.MEMBER_MONTHLY) + 1]
+end
 
 -- Reach Pride bundles: one per Reach, generated (banner + parade sash + nametag in Reach colors).
 local function slug(s: string): string
@@ -137,6 +183,19 @@ Store.BUNDLES = {
 	} },
 } :: { Bundle }
 
+-- The R$ 4,999 Season 1 Grand Collection: every sellable Season 1 item outside Reach Pride,
+-- weekly drops included (they unlock in the buyer's Locker right away). Built from the list so
+-- it never goes stale; Store.validate checks it stays a real saving.
+do
+	local all = {}
+	for _, it in ipairs(items) do
+		if not it.earned then
+			table.insert(all, it.id)
+		end
+	end
+	table.insert(Store.BUNDLES, { id = "grand_s1", name = "First Light Grand Collection", price = 4999, icon = "🌅", desc = "Every weapon skin, fade, pose, emote, wrap, nametag, parade look and Rusty pack in Season 1, weekly drops included.", items = all })
+end
+
 function Store.bundle(id: string): Bundle?
 	for _, b in ipairs(Store.BUNDLES) do
 		if b.id == id then
@@ -165,10 +224,10 @@ function Store.weekStart(week: number): number
 	return Store.EPOCH_MONDAY + week * Store.WEEK
 end
 
-function Store.rotatingPool(): { Item }
+function Store.rotatingPool(withDrops: boolean?): { Item }
 	local pool = {}
 	for _, it in ipairs(Store.ITEMS) do
-		if it.rot then
+		if it.rot and (withDrops ~= false or not it.drop) then
 			table.insert(pool, it)
 		end
 	end
@@ -191,11 +250,70 @@ end
 function Store.cycleWeeks(): number
 	return math.max(1, math.ceil(#Store.rotatingPool() / Store.FEATURED_PER_WEEK))
 end
+function Store.cycleWeeksAt(week: number): number
+	if week < Store.SEASON1_START_WEEK then
+		return math.max(1, math.ceil(#Store.rotatingPool(false) / Store.FEATURED_PER_WEEK))
+	end
+	return Store.cycleWeeks()
+end
 
--- The featured rotating items for a week. Every rotating item appears once per cycle.
+-- ===== Season 1 drop schedule (pre-authored) =====
+-- Week 1 of Season 1 starts on Store.SEASON1_START_WEEK (a Monday 00:00 UTC). Set it to your
+-- launch Monday before publishing (PUBLISHING.md 6f). Weeks 1-3 are the launch shelves; weeks
+-- 4-9 each add one 3-item drop next to 3 returning items. After week 9 every rotating item,
+-- drops included, cycles on the fixed schedule in Store.rotation.
+Store.SEASON1_START_WEEK = 2967 -- Monday 16 Nov 2026 00:00 UTC
+Store.DROP_NAMES = { "Harvest Moon", "Wheatsheaf", "Comet Night", "Lantern Festival", "Gallery Gala", "Regent's Return" }
+Store.SCHEDULE = {
+	{ "skin_bow_mirror", "fade_ash", "pose_lantern", "emote_twirl", "wrap_meadow", "tag_aurora" },
+	{ "skin_spear_lake", "fade_aurora", "pose_crown", "emote_lantern", "wrap_star", "rusty_coach" },
+	{ "skin_bow_frost", "skin_bow_regent", "skin_knife_night", "fade_starfall", "pose_regent", "parade_regal" },
+	{ "skin_bow_harvest", "emote_harvest", "wrap_harvest", "skin_bow_mirror", "fade_ash", "pose_lantern" },
+	{ "skin_spear_wheat", "pose_reaper", "tag_wheat", "skin_spear_lake", "emote_twirl", "wrap_meadow" },
+	{ "skin_bow_comet", "fade_comet", "emote_clap", "fade_aurora", "pose_crown", "tag_aurora" },
+	{ "skin_knife_lantern", "pose_moon", "parade_lantern", "emote_lantern", "wrap_star", "rusty_coach" },
+	{ "fade_petals", "wrap_gala", "rusty_gala", "skin_bow_frost", "skin_knife_night", "fade_starfall" },
+	{ "skin_spear_regent", "tag_regent", "fade_sunburst", "skin_bow_regent", "pose_regent", "parade_regal" },
+}
+
+-- Which Season 1 week (1-based) a shop week is, or nil outside the authored weeks.
+function Store.seasonWeek(week: number): number?
+	local rel = week - Store.SEASON1_START_WEEK + 1
+	if rel >= 1 and rel <= #Store.SCHEDULE then
+		return rel
+	end
+	return nil
+end
+
+-- The drop number released by a week (nil if none), and whether a drop item is out yet.
+function Store.dropOf(week: number): number?
+	local sw = Store.seasonWeek(week)
+	if sw and sw >= 4 then
+		return sw - 3
+	end
+	return nil
+end
+function Store.released(it: Item, week: number): boolean
+	if not it.drop then
+		return true
+	end
+	return week - Store.SEASON1_START_WEEK + 1 >= it.drop + 3
+end
+
+-- The featured rotating items for a week: the authored schedule during Season 1's first 9
+-- weeks, then a fixed cycle. Every rotating item appears at least once per cycle.
 function Store.rotation(week: number): { Item }
-	local pool = Store.rotatingPool()
-	local cycle = Store.cycleWeeks()
+	local sw = Store.seasonWeek(week)
+	if sw then
+		local out = {}
+		for _, id in ipairs(Store.SCHEDULE[sw]) do
+			table.insert(out, Store.byId[id])
+		end
+		return out
+	end
+	local beforeLaunch = week < Store.SEASON1_START_WEEK
+	local pool = Store.rotatingPool(not beforeLaunch)
+	local cycle = Store.cycleWeeksAt(week)
 	local slot = week % cycle
 	local out = {}
 	for i = 1, Store.FEATURED_PER_WEEK do
@@ -228,7 +346,7 @@ end
 
 -- The next week (>= week) an item is on sale. Always-on items return `week`.
 function Store.nextWeek(id: string, week: number): number?
-	for w = week, week + Store.cycleWeeks() do
+	for w = week, week + Store.cycleWeeks() + #Store.SCHEDULE + 1 do
 		if Store.inRotation(id, w) then
 			return w
 		end
@@ -251,7 +369,7 @@ export type Offer = { kind: string, id: string, name: string, price: number, ite
 function Store.offer(kind: string, id: string): Offer?
 	if kind == "item" then
 		local it = Store.byId[id]
-		if it then
+		if it and not it.earned then
 			return { kind = "item", id = id, name = it.name, price = it.price, items = { id }, icon = it.icon }
 		end
 	elseif kind == "bundle" then
@@ -273,7 +391,9 @@ function Store.canReceive(o: Offer, owned: { [string]: any }, week: number, flag
 		end
 		if not Store.inRotation(o.id, week) then
 			local nw = Store.nextWeek(o.id, week)
-			return false, nw and string.format("Back in the shop in %d week%s.", nw - week, nw - week == 1 and "" or "s") or "Not in the shop this season."
+			local it = Store.byId[o.id]
+			local verb = (it and not Store.released(it, week)) and "Arrives" or "Back in the shop"
+			return false, nw and string.format("%s in %d week%s.", verb, nw - week, nw - week == 1 and "" or "s") or "Not in the shop this season."
 		end
 		return true, nil
 	end
@@ -364,7 +484,11 @@ function Store.validate(): { string }
 			table.insert(errs, "duplicate " .. it.id)
 		end
 		seen[it.id] = true
-		if not Store.tierKey(it.price) then
+		if it.earned then
+			if it.price ~= 0 or it.rot then
+				table.insert(errs, it.id .. " earned items are never sold")
+			end
+		elseif not Store.tierKey(it.price) then
 			table.insert(errs, it.id .. " price not a tier")
 		end
 		if not slots[it.slot] then
@@ -384,6 +508,8 @@ function Store.validate(): { string }
 		for _, id in ipairs(b.items) do
 			if not Store.byId[id] then
 				table.insert(errs, b.id .. " missing " .. id)
+			elseif Store.byId[id].earned then
+				table.insert(errs, b.id .. " sells earned-only " .. id)
 			end
 		end
 		if Store.value(b, nil) <= b.price then
@@ -393,6 +519,19 @@ function Store.validate(): { string }
 		for _, w in ipairs(PRESSURE) do
 			if text:find(w, 1, true) then
 				table.insert(errs, b.id .. " says " .. w)
+			end
+		end
+	end
+	for w, ids in ipairs(Store.SCHEDULE) do
+		if #ids ~= Store.FEATURED_PER_WEEK then
+			table.insert(errs, "schedule week " .. w .. " size")
+		end
+		for _, id in ipairs(ids) do
+			local it = Store.byId[id]
+			if not it or not it.rot then
+				table.insert(errs, "schedule week " .. w .. " bad " .. id)
+			elseif it.drop and w < it.drop + 3 then
+				table.insert(errs, "schedule week " .. w .. " shows " .. id .. " before its drop")
 			end
 		end
 	end

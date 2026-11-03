@@ -31,6 +31,8 @@ local TimeUtil = require(Shared.Logic.TimeUtil)
 local Sponsors = require(Shared.Logic.Sponsors)
 local Award = require(Shared.Logic.Award)
 local Store = require(Shared.Store)
+local Mastery = require(Shared.Mastery)
+local Anim = require(Shared.Anim)
 Store.addReachPride(Names.REACH_LIST)
 
 local ProgressService = {}
@@ -146,6 +148,11 @@ function ProgressService.snapshot(player: Player): any?
 		letters = letterView(data),
 		favorBank = data.favorBank or 0,
 		titleName = Content.TITLES[data.equipped.title],
+		mastery = data.mastery,
+		masteryLevels = Mastery.THRESHOLDS,
+		masteryPerks = Mastery.PERKS,
+		dailyTen = { seconds = data.dailyTen.seconds, goal = Config.DailyTen.seconds, claimed = data.dailyTen.claimed },
+		invites = data.referral.brought,
 	}
 end
 
@@ -342,6 +349,108 @@ function ProgressService.grant(player: Player, id: string, why: string)
 	end
 end
 
+-- ===== v4: Mastery, first win, Daily Ten, invites =====
+function ProgressService.isPatron(player: Player): boolean
+	local r = ProgressService.runtime[player]
+	return r ~= nil and r.sub == true
+end
+
+function ProgressService.addMastery(player: Player, slot: string, skin: string, base: number)
+	local data = ProgressService.dataOf(player)
+	if not data then
+		return
+	end
+	data.mastery = data.mastery or {}
+	local key = Mastery.key(slot, skin)
+	local pts, up = Mastery.add(data.mastery, key, base, ProgressService.isPatron(player))
+	ProgressService.markDirty(player)
+	if up then
+		local lv = Mastery.level(pts)
+		local it = Store.byId[skin]
+		ctx.push(player, "mastery", { slot = slot, name = it and it.name or ("Default " .. slot), level = lv, perk = Mastery.PERKS[lv], stars = Mastery.stars(pts) })
+		ctx.Match.refreshHeld(player)
+		if lv >= Mastery.MAX then
+			ProgressService.applyNametag(player)
+		end
+	end
+end
+
+function ProgressService.mastered(data: any): boolean
+	for _, pts in pairs(data.mastery or {}) do
+		if Mastery.level(pts) >= Mastery.MAX then
+			return true
+		end
+	end
+	return false
+end
+
+-- First ever win: grants the free First Light pose once. True the one time it happens.
+function ProgressService.firstWin(player: Player): boolean
+	local data = ProgressService.dataOf(player)
+	if not data or data.offers.firstWinShown or (data.stats.wins or 0) < 1 then
+		return false
+	end
+	data.offers.firstWinShown = true
+	data.owned["pose_firstlight"] = true
+	if (data.equipped.pose or "") == "" then
+		data.equipped.pose = "pose_firstlight"
+	end
+	ProgressService.markDirty(player)
+	task.defer(ProgressService.sendState, player)
+	return true
+end
+
+-- Daily Ten: called every minute for each player in the server.
+local function tickDailyTen(player: Player, data: any, seconds: number)
+	local d = data.dailyTen
+	if d.day ~= today() then
+		d.day, d.seconds, d.claimed = today(), 0, false
+	end
+	if d.claimed then
+		return
+	end
+	d.seconds += seconds
+	if d.seconds >= Config.DailyTen.seconds then
+		d.claimed = true
+		giveXp(player, data, Config.DailyTen.xp)
+		SeasonTrack.addStars(data.season, Config.DailyTen.stars, Config.STARS_PER_TIER)
+		ctx.toast(player, string.format("☀️ Daily Ten: +%d XP and %d Season stars. See you tomorrow!", Config.DailyTen.xp, Config.DailyTen.stars), "good")
+		ProgressService.sendState(player)
+	end
+	ProgressService.markDirty(player)
+end
+
+-- Invites: the joining player's LaunchData is "ref:<inviter userId>". Both get the sash only
+-- if the inviter is in this server right now (stops alt farming), once per invited account.
+local function checkReferral(player: Player, data: any)
+	local ok, join = pcall(function()
+		return player:GetJoinData()
+	end)
+	local launch = ok and type(join) == "table" and join.LaunchData or nil
+	if type(launch) ~= "string" or launch:sub(1, 4) ~= "ref:" then
+		return
+	end
+	local by = tonumber(launch:sub(5))
+	if not by or by == player.UserId or data.referral.by ~= 0 then
+		return
+	end
+	local inviter = Players:GetPlayerByUserId(by)
+	local idata = inviter and ProgressService.dataOf(inviter)
+	if not inviter or not idata then
+		return
+	end
+	if (idata.referral.brought or 0) >= Config.Invites.weeklyCap then
+		return
+	end
+	data.referral.by = by
+	data.referral.rewarded = true
+	idata.referral.brought = (idata.referral.brought or 0) + 1
+	ProgressService.grant(player, Config.Invites.reward, "🔥 " .. inviter.DisplayName .. " brought you in: Torchbearer Sash for you both!")
+	ProgressService.grant(inviter, Config.Invites.reward, "🔥 " .. player.DisplayName .. " joined from your invite: Torchbearer Sash for you both!")
+	ProgressService.markDirty(player)
+	ProgressService.markDirty(inviter)
+end
+
 -- ===== Sponsor letters =====
 local function letterStats(data: any): { [string]: number }
 	return data.stats
@@ -424,6 +533,10 @@ function ProgressService.award(player: Player, r: MatchResult): any
 		return {}
 	end
 	ensurePeriodic(data)
+	-- v4 Mastery: +1 per finished match for each weapon look you have equipped (free progress)
+	for _, slot in ipairs(Mastery.SLOTS) do
+		ProgressService.addMastery(player, slot, data.equipped[slot] or "", Mastery.PER_MATCH)
+	end
 	local prevBest = data.stats.bestPlace
 	local playCount = Leveling.playStreak(data.play, os.time(), Config.PLAY_STREAK_WINDOW)
 	local playMult = Leveling.playMult(playCount, Config.PLAY_STREAK_STEP, Config.PLAY_STREAK_MAX)
@@ -669,6 +782,8 @@ local function equip(player: Player, slot: any, id: any): (boolean, string?)
 	ProgressService.sendState(player)
 	if slot == "nametag" or slot == "banner" then
 		ProgressService.applyNametag(player)
+	elseif slot == "bow" or slot == "spear" or slot == "knife" then
+		ctx.Match.refreshHeld(player)
 	end
 	return true, nil
 end
@@ -697,7 +812,7 @@ function ProgressService.applyNametag(player: Player)
 		color = Store.byId[id].color
 	end
 	local banner = Store.byId[data.equipped.banner or ""]
-	if not color and not banner then
+	if not color and not banner and not ProgressService.mastered(data) then
 		return
 	end
 	local hum = char:FindFirstChildOfClass("Humanoid")
@@ -717,7 +832,7 @@ function ProgressService.applyNametag(player: Player)
 	name.TextScaled = true
 	name.TextStrokeTransparency = 0.4
 	name.TextColor3 = Color3.fromHex(color or "#FFFFFF")
-	name.Text = player.DisplayName
+	name.Text = player.DisplayName .. (ProgressService.mastered(data) and " ✦" or "")
 	name.Parent = bb
 	if banner then
 		local b = Instance.new("TextLabel")
@@ -757,7 +872,8 @@ local function emote(player: Player, id: any): (boolean, string?)
 		return false, nil
 	end
 	lastEmote[player] = t
-	ctx.pushAll("emote", { user = player.UserId, icon = it.icon, name = it.name, color = it.color })
+	local clip = it.clip or it.id
+	ctx.pushAll("emote", { user = player.UserId, icon = it.icon, name = it.name, color = it.color, clip = Anim.CLIPS[clip] and clip or nil, uploaded = it.anim ~= nil and it.anim ~= 0 })
 	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 	local animator = hum and hum:FindFirstChildOfClass("Animator")
 	if animator and it.anim and it.anim ~= 0 then
@@ -785,6 +901,8 @@ local function onLoaded(player: Player, profile: any, isNew: boolean)
 	ProgressService.runtime[player] = { passes = ctx.Purchase.loadPasses(player), dirty = false }
 	task.spawn(function()
 		ctx.Purchase.checkSubscription(player)
+		ctx.Purchase.memberPerk(player)
+		checkReferral(player, data)
 		if player.Parent then
 			ProgressService.sendState(player)
 		end
@@ -846,6 +964,7 @@ function ProgressService.start()
 				local d = ProgressService.dataOf(p)
 				if d then
 					deliverLetters(p, d)
+					tickDailyTen(p, d, 60)
 				end
 			end
 			task.wait(60)

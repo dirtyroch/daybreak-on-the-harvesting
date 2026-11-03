@@ -18,6 +18,8 @@ local Panels = require(script.Parent.Panels)
 local Cutscene = require(script.Parent.Cutscene)
 local GalleryPanel = require(script.Parent.GalleryPanel)
 local Results = require(script.Parent.Results)
+local AnimPlayer = require(script.Parent.AnimPlayer)
+local OfferCard = require(script.Parent.OfferCard)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Names = require(Shared.Names)
@@ -48,6 +50,8 @@ Panels.mount(root)
 Hud.mount(root, Panels)
 GalleryPanel.mount(root)
 Results.mount(root)
+OfferCard.mount(root)
+AnimPlayer.start()
 Cutscene.mount(root)
 Net.notify = Fx.toast
 
@@ -75,7 +79,7 @@ Net.on("hazard", function(d)
 	Fx.toast(d.text, "bad")
 end)
 Net.on("tracer", function(d)
-	Fx.tracer(d.from, d.to, d.color)
+	Fx.tracer(d.from, d.to, d.color, d.bright)
 end)
 Net.on("hitmark", function(d)
 	Sfx.play("swat", 1.1, 0.05)
@@ -138,6 +142,47 @@ Net.on("emote", function(d)
 	if head then
 		Fx.bubble(head, d.icon .. " " .. d.name, d.color, 3)
 	end
+	-- v4: code-made emote clips play on every client (uploaded animations play server-side)
+	local p = Players:GetPlayerByUserId(d.user)
+	if d.clip and not d.uploaded and p and p.Character then
+		AnimPlayer.play(p.Character, d.clip)
+	end
+end)
+-- v4: after every match, everyone in the lobby gets a 6 s look at the Victory Podium.
+local podiumToken = 0
+Net.on("podiumShow", function(d)
+	if Hud.mode == "arena" or Cutscene.playing or Panels.isOpen() or not d.camera then
+		return
+	end
+	local cam = workspace.CurrentCamera
+	podiumToken += 1
+	local my = podiumToken
+	cam.CameraType = Enum.CameraType.Scriptable
+	cam.CFrame = d.camera
+	local names = {}
+	for _, e in ipairs(d.entries or {}) do
+		table.insert(names, ({ "🥇", "🥈", "🥉" })[e.place] .. " " .. e.name)
+	end
+	Fx.toast("Victory Podium: " .. table.concat(names, "   "), "info")
+	task.delay(d.seconds or 6, function()
+		if podiumToken == my and Hud.mode ~= "arena" then
+			cam.CameraType = Enum.CameraType.Custom
+		end
+	end)
+end)
+Net.on("mastery", function(d)
+	Sfx.play("coins")
+	Fx.announce(string.format("%s %s mastery %s", d.name, d.slot, d.stars), UI.Theme.gold, 2.4)
+	if d.perk then
+		Fx.toast("Unlocked: " .. d.perk, "good")
+	end
+end)
+Net.on("partnerMoment", function(d)
+	OfferCard.show(d, {
+		try = function()
+			Net.act("gift", d.target, d.gift)
+		end,
+	}, 15)
 end)
 Net.on("cheer", function(d)
 	if d.kind == "flare" and d.at then

@@ -22,6 +22,7 @@ local UI = require(script.Parent.UI)
 local Net = require(script.Parent.Net)
 local Fx = require(script.Parent.Fx)
 local Sfx = require(script.Parent.Sfx)
+local Rusty = require(script.Parent.Rusty)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Names = require(Shared.Names)
@@ -228,6 +229,7 @@ local function reaping(id: number, d: any, short: boolean)
 	end
 	camTo("CamRusty", 1.0)
 	say(Names.MENTOR .. " climbs the steps.", "“" .. Content.RUSTY.reaping .. "”")
+	Rusty.voice(Content.RUSTY.reaping, Net.state and Net.state.equipped and Net.state.equipped.rusty)
 	if not wait(id, 2.6) then
 		return
 	end
@@ -530,7 +532,8 @@ function Cutscene.mount(parent: Frame)
 	Net.on("launch", function(d)
 		stop()
 		Fx.announce("Stand on your plate!", T.gold, 2)
-		Fx.toast(string.format("Launch in %ds. Don't step off early. %s", d.seconds, Content.rustyLine(Net.state and Net.state.equipped and Net.state.equipped.rusty, "launch")), "info")
+		Fx.toast(string.format("Launch in %ds. Don't step off early.", d.seconds), "info")
+		Rusty.say("launch", "info")
 	end)
 	local _ = Config
 end

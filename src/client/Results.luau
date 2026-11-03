@@ -18,7 +18,10 @@ local Sfx = require(script.Parent.Sfx)
 local Hud = require(script.Parent.Hud)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared.Names)
-local Content = require(Shared.Content)
+local Rusty = require(script.Parent.Rusty)
+local OfferCard = require(script.Parent.OfferCard)
+local TryOn = require(script.Parent.TryOn)
+local Panels = require(script.Parent.Panels)
 local T = UI.Theme
 
 local Results = {}
@@ -29,6 +32,28 @@ local lines: Frame = nil :: any
 local reward: TextLabel = nil :: any
 local countdown: TextLabel = nil :: any
 local requeueAt = 0
+
+-- The calm post-match cards: a free first-win pose, then (if any) one fade preview.
+function Results.offers(d: any)
+	if d.firstWin then
+		OfferCard.show(d.firstWin, {
+			try = function()
+				Net.act("equip", "pose", "pose_firstlight")
+			end,
+		}, 30)
+	end
+	if d.preview then
+		local id = d.preview.itemId
+		OfferCard.show(d.preview, {
+			try = function()
+				TryOn.show(id)
+			end,
+			buy = function()
+				Panels.openItem(id)
+			end,
+		})
+	end
+end
 
 local function showCard(place: number?, headline: string, nm: { string }, result: any, extra: string?)
 	card.Visible = true
@@ -114,21 +139,25 @@ function Results.mount(parent: Frame)
 		Hud.mode = "gallery"
 		local how = d.betrayed and d.by and string.format("Betrayed by %s (%s). Your old pact-mate struck first.", d.by, d.byReach or "?") or d.by and string.format("Tapped by %s (%s) with %s%s. They had %d Pep left.", d.by, d.byReach or "?", d.weapon or "a shove", d.dist and string.format(" from %d studs", math.floor(d.dist)) or "", math.floor(d.byPep or 0)) or ("Knocked out by " .. tostring(d.cause))
 		Fx.announce(d.betrayed and "Pact Snap!" or "How you got tapped", T.red, 2.6)
-		Fx.toast("“" .. Content.rustyLine(Net.state and Net.state.equipped and Net.state.equipped.rusty, "lose") .. "”", "info")
+		Rusty.say("lose", "info")
 		Fx.toast(how, "info")
 		killcam(d)
 		task.delay(1.6, function()
 			showCard(d.place, d.headline, d.lines, d.result, how)
 			countdown.Text = d.autoQueue and "You're watching from " .. Names.GALLERY .. ". You'll be in the next match automatically." or "Watch from " .. Names.GALLERY .. " or play again."
+			Results.offers(d)
 		end)
 	end)
 	Net.on("finished", function(d)
 		if d.place == 1 then
 			Sfx.play("fanfare")
 			Fx.announce("🌅 " .. Names.CHAMPION .. "!", T.gold, 3.5)
-			Fx.toast("“" .. Content.rustyLine(Net.state and Net.state.equipped and Net.state.equipped.rusty, "win") .. "”", "good")
+			Rusty.say("win", "good")
 		end
 		showCard(d.place, d.headline, d.lines, d.result, d.result and d.result.topUp and "Encore top-up: paid for your best finish." or nil)
+		task.delay(2.5, function()
+			Results.offers(d)
+		end)
 	end)
 	Net.on("podium", function(d)
 		Hud.mode = "lobby"
@@ -168,6 +197,11 @@ function Results.mount(parent: Frame)
 			return
 		end
 		Fx.bell()
+		if d.by and not d.encore then
+			Fx.feed(string.format("%s%s ➜ %s", d.by, d.byStars and (" " .. d.byStars) or "", d.victim), d.fadeColor)
+		elseif not d.encore then
+			Fx.feed(string.format("✖ %s", d.victim))
+		end
 		if d.encore then
 			Fx.toast(string.format("✨ %s is back! %s", d.victim, d.cause), "good")
 		end

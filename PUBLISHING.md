@@ -71,7 +71,7 @@ Name the Item Shop products exactly as below so the store page reads clearly.
 | RenownBoost | Renown Boost | 49 | +50% Renown for 30 min in casual matches; everyone else in the server gets a 5-min Renown Shower. |
 | TierSkip | Season Tier Skip | 75 | One Season Track tier. Rewards are cosmetic. |
 | TierSkip10 | Season Tier Skip x10 | 599 | Ten tiers. |
-| Shop25, Shop49, Shop99, Shop149, Shop199, Shop299, Shop399, Shop499, Shop799, Shop1299, Shop1999 | Daybreak Shop item (R$ N) | 25 / 49 / 99 / 149 / 199 / 299 / 399 / 499 / 799 / 1,299 / 1,999 | Pays for the item or bundle picked on the in-game confirm card. |
+| Shop25, Shop49, Shop99, Shop149, Shop199, Shop299, Shop399, Shop499, Shop799, Shop1299, Shop1999, Shop4999 | Daybreak Shop item (R$ N) | 25 / 49 / 99 / 149 / 199 / 299 / 399 / 499 / 799 / 1,299 / 1,999 / 4,999 | Pays for the item or bundle picked on the in-game confirm card. |
 
 ### 6c. Patron Club subscription (Monetization > Subscriptions)
 
@@ -148,7 +148,27 @@ Bundles (offered only while the pieces you don't own are worth more than the pri
 - **Creator Rewards:** automatic. Roblox pays for Active Spenders who play and for new players you bring in through links.
 - **Age checks:** DevEx pays more for spending from age-checked US adults. No setup is needed in the game.
 - **Rewarded video ads:** not built. They need 2,000+ monthly visitors, a passed questionnaire and a 13+ ID-verified owner, and they can't be shown to under-13 players. Add them after launch if you want, as an optional "watch for a small Renown bonus", never as a progress gate.
-- **Animations and voice lines:** poses, emotes and Rusty packs have `anim = 0` / `sound = 0` slots in `Store.luau`. They work now as text bubbles and lines; upload animations and recordings and paste their IDs to make them move and speak.
+- **Animations and voice lines:** poses and emotes now move with code-made keyframe clips (`src/shared/Anim.luau`), and Rusty "babbles" each line in a pitch per pack. Uploaded animations and recorded lines are optional upgrades: paste IDs into the `anim` slots in `Store.luau` and `sound` in `Content.RUSTY_VOICE` (see 6g).
+
+### 6f. Season 1 weekly drops (set the start week at launch)
+
+`Store.SEASON1_START_WEEK` is the Monday Season 1 starts (default: week 2967, Mon 16 Nov 2026 UTC). Weeks 1 to 3 rotate the launch items; weeks 4 to 9 each bring a named drop of three new items (Harvest Moon, Wheatsheaf, Comet Night, Lantern Festival, Gallery Gala, Regent's Return). If you launch later, set it to `Store.week(os.time())` on your launch Monday, otherwise the drops will appear early. The "Next week" row in the shop shows names only, never a countdown.
+
+### 6g. Rusty voice packs (optional recordings)
+
+Each Rusty pack plays a short babble from a stock Roblox sound, pitched per pack. To use real recordings, upload one audio per pack (Creator Hub > Audio), then set `sound = <id>` for that pack in `Content.RUSTY_VOICE`. Keep lines kind; the text is in `Content.RUSTY_PACKS`.
+
+### 6h. Roblox Premium / Plus member perk
+
+Members (`player.HasRobloxSubscription`, falling back to `MembershipType == Premium`) get one free cosmetic each month, cycling through `Store.MEMBER_MONTHLY`, granted when they join. It is never sold. Premium Payouts are retired; your Plus income now comes through Creator Rewards, which counts Active Spenders who play 10+ minutes. The Daily Ten bonus (+150 XP and 2 ★ for 10 minutes a day) is built around that. Check in Studio that `HasRobloxSubscription` reads without errors (it's wrapped in pcall).
+
+### 6i. Things to check in Studio before launch
+
+- **Held weapons:** grips are set in `Arms.luau` (`grip()`); if a bow sits at an odd angle on your avatar type, change the angle there.
+- **Poses and emotes:** they write `Motor6D.Transform` every frame in `AnimPlayer.luau`. If the default Animate script fights them on your own character, switch `RunService.Stepped` to `RunService.PreSimulation`.
+- **Podium and Hall statues** use `Players:CreateHumanoidModelFromUserId`; without API access in Studio they fall back to stand-in models.
+- **Hall of Champions DataStores:** `HallWins_<week>` (OrderedDataStore) and `HallLoadout` (DataStore). Turn on API services (step 5).
+- **Invites:** `SocialService:PromptGameInvite` only works in a published game; the join's `LaunchData` "ref:<userId>" gives both players the Torchbearer Sash (capped at 20 a week).
 
 ## 7. Maturity & Compliance questionnaire (prefilled answers)
 

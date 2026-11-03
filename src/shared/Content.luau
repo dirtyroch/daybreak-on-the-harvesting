@@ -110,7 +110,45 @@ Content.RUSTY_PACKS = {
 		lose = "Tip: drink before you're thirsty, move before the Veil makes you.",
 		launch = "Coach says: trees first, crates second, heroics last.",
 	},
+	rusty_gala = {
+		win = "Ladies, gentlemen and Gallery! Your champion, dressed for the occasion!",
+		lose = "A fine performance. The Gala saves you a seat for the next one.",
+		launch = "Welcome to the Gala, darling. Mind the Veil, it ruins a good coat.",
+	},
 } :: { [string]: { [string]: string } }
+
+-- Rusty's voice. Each pack has a `sound` slot for a recorded voice line (0 until you upload
+-- one; PUBLISHING.md 6g) and a built-in "babble" made from a stock Roblox client sound played
+-- in short pitched beeps, like a talking animal in a cartoon, so every line has a voice today.
+-- `pitch` and `pace` make each pack sound different.
+Content.RUSTY_BABBLE = "rbxasset://sounds/electronicpingshort.wav"
+Content.RUSTY_VOICE = {
+	default = { sound = 0, pitch = 0.8, pace = 0.09 },
+	rusty_thermos = { sound = 0, pitch = 0.7, pace = 0.11 },
+	rusty_stories = { sound = 0, pitch = 0.65, pace = 0.13 },
+	rusty_coach = { sound = 0, pitch = 0.95, pace = 0.07 },
+	rusty_gala = { sound = 0, pitch = 1.05, pace = 0.08 },
+} :: { [string]: { sound: number, pitch: number, pace: number } }
+
+function Content.rustyVoice(pack: string?): { sound: number, pitch: number, pace: number }
+	return (pack and Content.RUSTY_VOICE[pack]) or Content.RUSTY_VOICE.default
+end
+
+-- Babble beeps for a line: one per word, max 12, pitch wobbling by word length (deterministic).
+function Content.babble(line: string, pack: string?): { { t: number, pitch: number } }
+	local v = Content.rustyVoice(pack)
+	local out = {}
+	local i = 0
+	for word in line:gmatch("%a+") do
+		if i >= 12 then
+			break
+		end
+		local wobble = ((#word * 7) % 5 - 2) * 0.04
+		table.insert(out, { t = i * v.pace * 1.6, pitch = v.pitch + wobble })
+		i += 1
+	end
+	return out
+end
 
 function Content.rustyLine(pack: string?, key: string): string
 	local p = pack and Content.RUSTY_PACKS[pack]
@@ -126,16 +164,25 @@ Content.BOT_NAMES = {
 } :: { string }
 
 -- Cosmetic knockout fades (how a knocked-out contender dissolves into light).
+-- Fades: how a knocked-out contender leaves the field. The KNOCKER's equipped fade plays, so
+-- every knockout shows off the fade to the whole lobby. `style` picks the animated finisher in
+-- MatchService.dissolve: column (rising light), embers, shimmer, petals, lanterns, ash, ribbons,
+-- stars, comet, burst.
 Content.FADES = {
-	fade_gold = { name = "Gold Light", color = "#FFD36B" },
-	fade_ember = { name = "Ember Light", color = "#FF8A4C" },
-	fade_veil = { name = "Veil Shimmer", color = "#7FF3FF" },
-	fade_bloom = { name = "Bloom Petals", color = "#FF4FB8" },
-	fade_dawn = { name = "Patron's Dawn", color = "#FFB38A" },
-	fade_lantern = { name = "Lantern Glow", color = "#FFE9A8" },
-	fade_ash = { name = "Ash and Embers", color = "#D8C3A5" },
-	fade_aurora = { name = "Aurora Fade", color = "#7DFFB2" },
-	fade_starfall = { name = "Starfall Fade", color = "#FFF1B8" },
-} :: { [string]: { name: string, color: string } }
+	fade_gold = { name = "Gold Light", color = "#FFD36B", style = "column" },
+	fade_ember = { name = "Ember Light", color = "#FF8A4C", style = "embers" },
+	fade_veil = { name = "Veil Shimmer", color = "#7FF3FF", style = "shimmer" },
+	fade_bloom = { name = "Bloom Petals", color = "#FF4FB8", style = "petals" },
+	fade_dawn = { name = "Patron's Dawn", color = "#FFB38A", style = "burst" },
+	fade_lantern = { name = "Lantern Glow", color = "#FFE9A8", style = "lanterns" },
+	fade_ash = { name = "Ash and Embers", color = "#D8C3A5", style = "ash" },
+	fade_aurora = { name = "Aurora Fade", color = "#7DFFB2", style = "ribbons" },
+	fade_starfall = { name = "Starfall Fade", color = "#FFF1B8", style = "stars" },
+	fade_comet = { name = "Comet Tail", color = "#9DB4FF", style = "comet" },
+	fade_petals = { name = "Petal Storm", color = "#FF9EC7", style = "petals" },
+	fade_sunburst = { name = "Sunburst", color = "#FFB347", style = "burst" },
+} :: { [string]: { name: string, color: string, style: string } }
+
+Content.FADE_STYLES = { "column", "embers", "shimmer", "petals", "lanterns", "ash", "ribbons", "stars", "comet", "burst" }
 
 return Content

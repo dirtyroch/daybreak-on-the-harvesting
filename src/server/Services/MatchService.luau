@@ -34,6 +34,24 @@ local Stamina = require(Shared.Logic.Stamina)
 local Meters = require(Shared.Logic.Meters)
 local Throw = require(Shared.Logic.Throw)
 local Store = require(Shared.Store)
+local Arms = require(Shared.Arms) :: any
+local Mastery = require(Shared.Mastery)
+local Offers = require(Shared.Offers)
+local Finishers = require(Shared.Finishers)
+
+-- Globals handed to shared builders (Arms) so the same code runs in Lune tests.
+local E = {
+	Instance = Instance,
+	Vector3 = Vector3,
+	CFrame = CFrame,
+	Color3 = Color3,
+	Enum = Enum,
+	UDim2 = UDim2,
+	NumberSequence = NumberSequence,
+	NumberRange = NumberRange,
+	ColorSequence = ColorSequence,
+	Vector2 = Vector2,
+}
 
 local MatchService = {}
 local ctx: any = nil
@@ -173,6 +191,21 @@ local function inQueue(p: Player): boolean
 end
 
 -- ===================== inventory + held item visuals =====================
+-- The equipped weapon skin and its Mastery level for a contender (bots use the default look).
+local function looksOf(c: Contender, slot: string): (string, number)
+	if not c.player then
+		return "", 0
+	end
+	local data = ctx.Progress.dataOf(c.player)
+	if not data or not data.equipped then
+		return "", 0
+	end
+	local skin = data.equipped[slot] or ""
+	local pts = data.mastery and data.mastery[Mastery.key(slot, skin)] or 0
+	return skin, Mastery.level(pts)
+end
+MatchService.looksOf = looksOf
+
 local function setHeld(c: Contender)
 	local m = c.model
 	if not m then
@@ -186,6 +219,13 @@ local function setHeld(c: Contender)
 	if not item then
 		return
 	end
+	-- v4: weapons are full part-built models per skin (Arms.luau), with Mastery trim on top
+	if item == "bow" or item == "spear" or item == "knife" then
+		local skin, lvl = looksOf(c, item)
+		if Arms.attach(E, m, item, skin, lvl) then
+			return
+		end
+	end
 	local hand = (m:FindFirstChild("RightHand") or m:FindFirstChild("Right Arm") or MatchService.rootOf(c)) :: BasePart?
 	if not hand then
 		return
@@ -196,27 +236,23 @@ local function setHeld(c: Contender)
 	p.CanQuery = false
 	p.Massless = true
 	p.Material = Enum.Material.Wood
-	if item == "bow" then
-		p.Size = Vector3.new(0.3, 4.2, 0.6)
-		p.Color = Color3.fromHex("#7A4E2A")
-	elseif item == "spear" then
-		p.Size = Vector3.new(0.3, 7, 0.3)
-		p.Color = Color3.fromHex("#8A6A3A")
-	elseif item == "knife" then
-		p.Size = Vector3.new(0.2, 1.4, 0.4)
-		p.Color = Color3.fromHex("#BFC6CF")
-		p.Material = Enum.Material.Metal
-	else
-		p.Size = Vector3.new(0.8, 0.8, 0.8)
-		p.Color = Color3.fromHex("#D4A72C")
-		p.Shape = Enum.PartType.Ball
-	end
+	p.Size = Vector3.new(0.8, 0.8, 0.8)
+	p.Color = Color3.fromHex("#D4A72C")
+	p.Shape = Enum.PartType.Ball
 	p.CFrame = hand.CFrame * CFrame.new(0, -0.6, -0.3)
 	local w = Instance.new("WeldConstraint")
 	w.Part0 = hand
 	w.Part1 = p
 	w.Parent = p
 	p.Parent = m
+end
+
+-- Rebuild a player's held weapon (after a Mastery level-up or a Locker change).
+function MatchService.refreshHeld(player: Player)
+	local c = MatchService.contenderOf(player)
+	if c and c.alive then
+		setHeld(c)
+	end
 end
 
 local function pushInv(c: Contender)
@@ -318,29 +354,38 @@ local function isPrivate(): boolean
 end
 MatchService.isPrivate = isPrivate
 
-local function fadeColor(c: Contender): Color3
-	local fade = "fade_gold"
-	if c.player then
-		local data = ctx.Progress.dataOf(c.player)
-		if data and data.equipped and Content.FADES[data.equipped.fade] then
-			fade = data.equipped.fade
+-- v4: the KNOCKER's fade plays (so a fade is seen by the whole lobby every time it's used);
+-- with no knocker (Veil, falls) the victim's own fade plays.
+local function fadeOf(c: Contender, by: Contender?): string
+	for _, who in ipairs({ by, c }) do
+		if who and who.player then
+			local data = ctx.Progress.dataOf(who.player)
+			if data and data.equipped and Content.FADES[data.equipped.fade] then
+				return data.equipped.fade
+			end
 		end
 	end
-	return Color3.fromHex(Content.FADES[fade].color)
+	return "fade_gold"
 end
+MatchService.fadeOf = fadeOf
 
--- The knockout effect: glow, float a little, dissolve into a column of light.
-local function dissolve(c: Contender)
+-- The knockout effect: glow, float a little, dissolve with the fade's animated finisher.
+local function dissolve(c: Contender, by: Contender?)
 	local m = c.model
 	if not m then
 		return
 	end
-	local color = fadeColor(c)
+	local fid = fadeOf(c, by)
+	local f = Content.FADES[fid]
+	local color = Color3.fromHex(f.color)
 	local h = Instance.new("Highlight")
 	h.FillColor = color
 	h.OutlineColor = Color3.new(1, 1, 1)
 	h.FillTransparency = 0.15
 	h.Parent = m
+	if f.style == "shimmer" then
+		TweenService:Create(h, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 6, true), { FillTransparency = 0.7 }):Play()
+	end
 	local root = MatchService.rootOf(c)
 	for _, d in ipairs(m:GetDescendants()) do
 		if d:IsA("BasePart") then
@@ -352,22 +397,7 @@ local function dissolve(c: Contender)
 		end
 	end
 	if root then
-		local beam = Instance.new("Part")
-		beam.Name = "LightColumn"
-		beam.Anchored = true
-		beam.CanCollide = false
-		beam.CanQuery = false
-		beam.Material = Enum.Material.Neon
-		beam.Color = color
-		beam.Shape = Enum.PartType.Cylinder
-		beam.Size = Vector3.new(2, 3, 3)
-		beam.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, 0, math.pi / 2)
-		beam.Transparency = 0.2
-		beam.Parent = workspace
-		TweenService:Create(beam, TweenInfo.new(2.2), { Size = Vector3.new(120, 1, 1), CFrame = CFrame.new(root.Position + Vector3.new(0, 60, 0)) * CFrame.Angles(0, 0, math.pi / 2), Transparency = 1 }):Play()
-		task.delay(2.4, function()
-			beam:Destroy()
-		end)
+		Finishers.play(f.style, root.Position, color)
 	end
 end
 
@@ -409,13 +439,26 @@ function MatchService.knockout(c: Contender, cause: string)
 			if c.lastHitWeapon == "bow" then
 				ctx.Progress.bump(attacker.player, "bowknocks", 1)
 			end
+			local wpn = c.lastHitWeapon
+			if wpn == "bow" or wpn == "spear" or wpn == "knife" then
+				local skin = select(1, looksOf(attacker, wpn))
+				ctx.Progress.addMastery(attacker.player, wpn, skin, Mastery.PER_KNOCK)
+			end
 			ctx.push(attacker.player, "knocked", { name = c.name, reach = c.reach, left = place - 1 })
 		end
 	end
-	dissolve(c)
+	dissolve(c, attacker)
+	local byStars = ""
+	if attacker and c.lastHitWeapon then
+		local _, lvl = looksOf(attacker, c.lastHitWeapon)
+		byStars = lvl >= Mastery.MAX and "✦" or string.rep("★", lvl)
+	end
 	pushMatch("feed", {
 		victim = c.name,
 		by = attacker and attacker.name or nil,
+		byStars = byStars ~= "" and byStars or nil,
+		fade = attacker and attacker.player and fadeOf(c, attacker) or nil,
+		fadeColor = attacker and attacker.player and Content.FADES[fadeOf(c, attacker)].color or nil,
 		cause = cause,
 		weapon = c.lastHitWeapon,
 		left = place - 1,
@@ -481,6 +524,7 @@ function MatchService.knockout(c: Contender, cause: string)
 			place = place,
 			result = result,
 			autoQueue = data and data.settings.autoQueue or false,
+			preview = ctx.Purchase.previewFor(player, c.knocks),
 		})
 		task.delay(3.2, function()
 			if player.Parent then
@@ -589,7 +633,7 @@ function MatchService.attack(c: Contender, wid: string, aim: Vector3?): boolean
 		params.FilterDescendantsInstances = { c.model :: any, map().Arena.Veil }
 		local hit = workspace:Raycast(origin, dir, params)
 		local to = hit and hit.Position or (origin + dir)
-		pushMatch("tracer", { from = origin, to = to, color = skinColor(c, "bow") })
+		pushMatch("tracer", { from = origin, to = to, color = skinColor(c, "bow"), bright = select(2, looksOf(c, "bow")) >= 2 })
 		if hit then
 			local m = hit.Instance:FindFirstAncestorOfClass("Model")
 			while m and not byModel[m] do
@@ -795,7 +839,7 @@ function MatchService.throw(c: Contender, aim: Vector3?): boolean
 		local b = Vector3.new(leg.to.x, origin.Y, leg.to.z)
 		local hit = workspace:Raycast(a, b - a, params)
 		local stop = hit and hit.Position or b
-		pushMatch("tracer", { from = a, to = stop, spear = true, color = skinColor(c, "spear") })
+		pushMatch("tracer", { from = a, to = stop, spear = true, color = skinColor(c, "spear"), bright = select(2, looksOf(c, "spear")) >= 2 })
 		-- Veil Breaker: only a rebounded spear counts
 		local core = veilCore
 		if leg.bounced and core and Throw.segDist(leg.from, { x = stop.X, z = stop.Z }, { x = core.Position.X, z = core.Position.Z }) <= Config.VeilBreaker.coreSize * 0.6 then
@@ -1432,6 +1476,7 @@ local function startPodium()
 	table.sort(all, function(a: Contender, b: Contender): boolean
 		return (a.place or 99) < (b.place or 99)
 	end)
+	local statues = {}
 	for i = 1, math.min(3, #all) do
 		local entry = { name = all[i].name, reach = all[i].reach, place = all[i].place, knocks = all[i].knocks }
 		local pl = all[i].player
@@ -1443,7 +1488,15 @@ local function startPodium()
 			entry.banner = banner and banner.name or nil
 		end
 		table.insert(podium, entry)
+		-- v4: statues on the lobby Victory Podium in their real loadout (bots: default looks)
+		local l = pl and ctx.Hall.loadoutOf(pl)
+			or { userId = 0, name = all[i].name, pose = "pose_firstlight", weapon = "bow", skin = "", mastery = 0, fade = "fade_gold", banner = "", title = "" }
+		table.insert(statues, { place = i, loadout = l })
 	end
+	if winner and winner.player then
+		ctx.Hall.recordWin(winner.player)
+	end
+	ctx.Hall.podium(statues)
 	for _, c in ipairs(all) do
 		-- Encore fix: someone paid at an earlier knockout and voted back in is topped up to
 		-- their final place here, once (v1 skipped them because `awarded` was already set).
@@ -1475,7 +1528,15 @@ local function startPodium()
 			end
 			c.awarded = true
 			local nm = { place = c.place or 2, size = Config.MATCH_SIZE, knocks = c.knocks, survived = MatchService.t, bestPlace = prevBest, nextKnockGoal = ctx.Progress.nextGoal(c.player, "knocks"), winnerPepLeft = winner and winner.pep }
-			ctx.push(c.player, "finished", { headline = NearMiss.headline(nm), lines = NearMiss.lines(nm), place = c.place, result = result })
+			local firstWin = c.place == 1 and ctx.Progress.firstWin(c.player)
+			ctx.push(c.player, "finished", {
+				headline = NearMiss.headline(nm),
+				lines = NearMiss.lines(nm),
+				place = c.place,
+				result = result,
+				preview = ctx.Purchase.previewFor(c.player, c.knocks),
+				firstWin = firstWin and Offers.firstWin(c.player.DisplayName) or nil,
+			})
 		end
 	end
 	pushMatch("podium", { podium = podium, winner = winner and winner.name or "", reach = winner and winner.reach or "", next = Config.PODIUM_SECONDS + Config.Matchmaking.nextMatchSeconds })

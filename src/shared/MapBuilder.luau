@@ -1098,6 +1098,45 @@ local function buildLobby(root, cfg, names, _content)
 		pl.Brightness = 1.4
 		pl.Parent = bulb
 	end
+	-- v4: the Victory Podium (last match's top 3 as posed statues, everyone's camera visits it)
+	-- and the Hall of Champions (this week's top winners in their equipped cosmetics).
+	local function sign(parent, name, cf, text)
+		local b = part(parent, name, V(16, 5, 0.8), cf, "#23283A", E.Enum.Material.SmoothPlastic)
+		part(parent, name .. "Frame", V(17, 6, 0.6), cf * E.CFrame.new(0, 0, 0.2), PAL.gold, E.Enum.Material.Metal)
+		surfaceText(b, E.Enum.NormalId.Front, text, "#FFE9A8", "#23283A")
+		return b
+	end
+	local vp = folder(lb, "VictoryPodium")
+	local vpBase = at(P(-95, 0, 70)) * yaw(-math.pi / 2) -- faces +X, toward the plaza
+	vp:SetAttribute("Focus", true)
+	local heights = { 5, 3.6, 2.4 }
+	local offs = { 0, -7, 7 }
+	for place = 1, 3 do
+		local h = heights[place]
+		local cf = vpBase * E.CFrame.new(offs[place], h / 2, 0)
+		part(vp, "Tier" .. place, V(6, h, 6), cf, place == 1 and PAL.gold or PAL.marble, place == 1 and E.Enum.Material.Metal or E.Enum.Material.Marble)
+		local spot = part(vp, "Spot" .. place, V(1, 0.2, 1), vpBase * E.CFrame.new(offs[place], h + 0.1, 0), PAL.gold, E.Enum.Material.Metal, { Transparency = 1, CanCollide = false, CanQuery = false })
+		spot:SetAttribute("Place", place)
+	end
+	sign(vp, "PodiumSign", vpBase * E.CFrame.new(0, 13, 4), "VICTORY PODIUM\nLast match's top three")
+	local camMark = part(vp, "CameraMark", V(1, 1, 1), lookAt(vpBase * V(0, 9, -26), vpBase * V(0, 6, 0)), PAL.gold, E.Enum.Material.Metal, { Transparency = 1, CanCollide = false, CanQuery = false })
+	camMark:SetAttribute("Camera", true)
+
+	local hall = folder(lb, "HallOfChampions")
+	local hallBase = at(P(100, 0, 70)) * yaw(math.pi / 2) -- faces -X, toward the plaza
+	part(hall, "HallFloor", V(46, 0.6, 18), hallBase * E.CFrame.new(0, 0.3, 2), PAL.marble, E.Enum.Material.Marble)
+	part(hall, "HallBack", V(48, 22, 2), hallBase * E.CFrame.new(0, 11, 11), "#2B2D33", E.Enum.Material.Slate)
+	part(hall, "HallTrim", V(48.5, 1.2, 2.4), hallBase * E.CFrame.new(0, 22, 11), PAL.gold, E.Enum.Material.Metal)
+	for k = 1, 5 do
+		local x = (k - 3) * 9
+		local z = math.abs(k - 3) * 1.5
+		local cf = hallBase * E.CFrame.new(x, 2, z)
+		part(hall, "Plinth" .. k, V(5, 3.4, 5), cf, k == 3 and PAL.gold or PAL.marble, k == 3 and E.Enum.Material.Metal or E.Enum.Material.Marble)
+		local spot = part(hall, "HallSpot" .. k, V(1, 0.2, 1), hallBase * E.CFrame.new(x, 3.8, z), PAL.gold, E.Enum.Material.Metal, { Transparency = 1, CanCollide = false, CanQuery = false })
+		spot:SetAttribute("Rank", k == 3 and 1 or (k == 2 and 2 or (k == 4 and 3 or (k == 1 and 4 or 5))))
+	end
+	sign(hall, "HallSign", hallBase * E.CFrame.new(0, 17, 9.8), "HALL OF CHAMPIONS\nMost wins this week")
+
 	local spawn = E.Instance.new("SpawnLocation")
 	spawn.Name = "LobbySpawn"
 	spawn.Anchored = true

@@ -227,6 +227,15 @@ Config.FairPlay = {
 }
 Config.RANKED = false -- v1 ships casual Jubilee only
 
+-- ===== v4: Daily Ten and invites =====
+-- Daily Ten: play 10 minutes in a day for a small XP + Season star bonus. Free, once a day.
+-- (Roblox Creator Rewards count Active Spenders who spend 10+ minutes in an experience, so
+-- this gives regulars a reason to stay past that line. It never pays Robux or items.)
+Config.DailyTen = { seconds = 600, xp = 150, stars = 2 }
+-- Invites: a friend who joins from your invite while you're in the server gets the Torchbearer
+-- Sash, and so do you (once per friend pair, max 20 a week for the inviter).
+Config.Invites = { reward = "sash_torchbearer", weeklyCap = 20 }
+
 -- ===== Bots =====
 Config.Bots = {
 	tick = 0.25,

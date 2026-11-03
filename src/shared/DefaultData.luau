@@ -51,6 +51,12 @@ function DefaultData.new(): any
 		buyLog = {}, -- last 20 purchases { t, name, price, gift }
 		patronMonth = -1, -- last month the Patron Club monthly perks were granted
 		shopSeenWeek = -1, -- last shop week the player opened the shop (for the "new this week" dot)
+		-- v4
+		mastery = {}, -- "bow:skin_bow_gilded" -> points (Mastery.luau); free progress
+		memberMonth = -1, -- last month the Roblox Plus / Premium member gift was granted
+		dailyTen = { day = -1, seconds = 0, claimed = false }, -- Daily Ten play bonus
+		referral = { by = 0, rewarded = false, brought = 0 }, -- friend invites
+		offers = { firstWinShown = false, previewsSeen = 0 }, -- calm offer bookkeeping
 	}
 end
 

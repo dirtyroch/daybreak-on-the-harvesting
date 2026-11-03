@@ -12,6 +12,9 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared.Names)
 local Content = require(Shared.Content)
 local Shop = require(Shared.Store)
+local Mastery = require(Shared.Mastery)
+local TryOn = require(script.Parent.TryOn)
+local SocialService = game:GetService("SocialService")
 Shop.addReachPride(Names.REACH_LIST)
 local T = UI.Theme
 
@@ -212,6 +215,12 @@ local function itemCard(parent: Instance, it: any, order: number, store: any)
 	UI.corner(sw, 3)
 	UI.label(it.icon, { Position = UDim2.new(0, 0, 0, 10), Size = UDim2.new(1, 0, 0, 40), TextSize = 32, TextXAlignment = Enum.TextXAlignment.Center, Parent = f })
 	UI.label(it.name, { Position = UDim2.new(0, 0, 0, 52), Size = UDim2.new(1, 0, 0, 20), TextSize = 14, TextXAlignment = Enum.TextXAlignment.Center, Parent = f })
+	if not it.owned and TryOn.canTry(it.id) then
+		UI.button("👁 Try", T.blue, { Position = UDim2.new(0, 0, 1, -64), Size = UDim2.new(1, 0, 0, 26), TextSize = 12, TextColor3 = T.text, Parent = f }, function()
+			Panels.close()
+			TryOn.show(it.id)
+		end)
+	end
 	local label = it.owned and "Owned" or ("R$ " .. it.price)
 	local color = it.owned and T.green or T.gold
 	if not it.owned and not it.canBuy then
@@ -229,7 +238,7 @@ end
 
 local function grid(order: number, h: number?): Frame
 	local g = UI.frame({ BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = order, Parent = body })
-	UI.new("UIGridLayout", { CellSize = UDim2.new(0, 132, 0, h or 150), CellPadding = UDim2.new(0, 8, 0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = g })
+	UI.new("UIGridLayout", { CellSize = UDim2.new(0, 132, 0, h or 166), CellPadding = UDim2.new(0, 8, 0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = g })
 	return g
 end
 
@@ -269,6 +278,10 @@ builders.shop = function(s: any)
 	end
 	local order = 1
 	if shopTab == "week" then
+		if store.dropName then
+			heading("🌾 This week's drop: " .. store.dropName, order)
+			order += 1
+		end
 		note(string.format("New picks every Monday. Today's six change on %s. Every item comes back on a fixed %d-week cycle. Cosmetic only, never random.", store.changesOn, store.cycle), order)
 		order += 1
 		local g = grid(order)
@@ -289,6 +302,19 @@ builders.shop = function(s: any)
 			UI.button("R$ " .. st.price, T.gold, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 120, 0, 38), TextSize = 16, Parent = f }, function()
 				openConfirm({ kind = "bundle", id = st.id, name = st.name, icon = st.icon, price = st.price, desc = st.desc, once = true }, store)
 			end)
+		end
+		-- v4: next week's names, so players can plan (no countdowns, no "last chance")
+		if store.upcoming and #store.upcoming > 0 then
+			order += 1
+			heading("Next week" .. (store.nextDropName and (": " .. store.nextDropName) or ""), order)
+			order += 1
+			local up = UI.frame({ BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, 34), LayoutOrder = order, Parent = body })
+			UI.list(up, Enum.FillDirection.Horizontal, 6)
+			for _, u in ipairs(store.upcoming) do
+				local chip = UI.label((u.new and "✨ " or "") .. u.icon .. " " .. u.name, { Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, TextSize = 13, Font = T.body, BackgroundTransparency = 0, BackgroundColor3 = T.card, Parent = up })
+				UI.corner(chip, 8)
+				UI.pad(chip, 6)
+			end
 		end
 	elseif TAB_CATS[shopTab] then
 		if shopTab == "arms" then
@@ -406,9 +432,18 @@ builders.shop = function(s: any)
 			end)
 		end
 		order += 1
-		UI.button("➕ Roblox Plus", T.card, { LayoutOrder = order, Size = UDim2.new(0, 200, 0, 36), TextSize = 14, TextColor3 = T.text, Parent = body }, function()
-			Net.act("plus")
-		end)
+		heading("Roblox Premium / Plus members", order)
+		order += 1
+		local mi = Shop.byId[shop.memberItem or ""]
+		local mf = row(78, order)
+		UI.label(string.format("Members get a free cosmetic every month%s, plus the member nametag. Free for members, never sold.", mi and (": this month " .. mi.icon .. " " .. mi.name) or ""), { Size = UDim2.new(1, -170, 1, 0), TextSize = 14, Font = T.body, TextWrapped = true, Parent = mf })
+		if shop.member then
+			UI.label("✔ Claimed", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 150, 0, 38), TextSize = 15, TextColor3 = T.green, TextXAlignment = Enum.TextXAlignment.Right, Parent = mf })
+		elseif shop.plusAvailable then
+			UI.button("➕ About Roblox Plus", T.card, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 160, 0, 38), TextSize = 13, TextColor3 = T.text, Parent = mf }, function()
+				Net.act("plus")
+			end)
+		end
 	end
 	order += 100
 	note(string.format("Robux spent here so far: R$ %d. Your purchase history is in Profile.", store.spent or 0), order)
@@ -437,6 +472,15 @@ builders.profile = function(s: any)
 		UI.label(l[1], { Size = UDim2.new(0.6, 0, 1, 0), TextSize = 16, Font = T.body, Parent = f })
 		UI.label(tostring(l[2]), { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Size = UDim2.new(0.4, 0, 1, 0), TextSize = 16, TextXAlignment = Enum.TextXAlignment.Right, Parent = f })
 	end
+	if s.dailyTen then
+		local d = s.dailyTen
+		local f = row(40, 9)
+		local mins = math.floor(math.min(d.seconds, d.goal) / 60)
+		UI.label(d.claimed and "☀ Daily Ten done for today: +XP and ★ added." or string.format("☀ Daily Ten: %d of %d minutes played today (bonus XP and ★ at %d).", mins, math.floor(d.goal / 60), math.floor(d.goal / 60)), { Size = UDim2.new(1, -150, 1, 0), TextSize = 14, Font = T.body, Parent = f })
+		UI.button("🔗 Invite a friend", T.blue, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 140, 0, 32), TextSize = 13, TextColor3 = T.text, Parent = f }, function()
+			Panels.invite()
+		end)
+	end
 	heading("Locker", 10)
 	local LOCKER = {
 		{ slot = "fade", label = "Knockout fade" },
@@ -455,7 +499,15 @@ builders.profile = function(s: any)
 		local f = UI.frame({ BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 10 + i, Parent = body })
 		UI.new("UIGridLayout", { CellSize = UDim2.new(0, 150, 0, 34), CellPadding = UDim2.new(0, 6, 0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = f })
 		local eq = s.equipped[L.slot] or ""
-		UI.label(L.label, { LayoutOrder = 0, TextSize = 14, TextColor3 = T.dim, Parent = f })
+		local lbl = L.label
+		if (L.slot == "bow" or L.slot == "spear" or L.slot == "knife") and s.store then
+			local pts = (s.store.mastery or {})[Mastery.key(L.slot, eq ~= "" and eq or nil)] or 0
+			local stars = Mastery.stars(pts)
+			if stars ~= "" then
+				lbl = lbl .. " " .. stars
+			end
+		end
+		UI.label(lbl, { LayoutOrder = 0, TextSize = 14, TextColor3 = T.dim, Parent = f })
 		local opts: { { id: string, name: string } } = {}
 		if L.slot == "fade" then
 			for id, fd in pairs(Content.FADES) do
@@ -485,6 +537,18 @@ builders.profile = function(s: any)
 			UI.button(o.name, eq == o.id and T.gold or T.card, { LayoutOrder = j, TextSize = 13, TextColor3 = eq == o.id and T.dark or T.text, Parent = f }, function()
 				Net.act("equip", L.slot, o.id)
 			end)
+		end
+		-- v4: try on what's in the shop this week for this slot (free, only you see it)
+		if s.store and s.store.featured then
+			for k, it in ipairs(s.store.featured) do
+				local fits = (it.slot == L.slot) or (L.slot == "fade" and it.slot == "fade")
+				if fits and not it.owned and TryOn.canTry(it.id) then
+					UI.button("👁 Try " .. it.name, T.panel, { LayoutOrder = 100 + k, TextSize = 12, TextColor3 = T.dim, Parent = f }, function()
+						Panels.close()
+						TryOn.show(it.id)
+					end)
+				end
+			end
 		end
 	end
 	local store = s.store
@@ -618,6 +682,48 @@ function Panels.open(id: string)
 	win.Visible = true
 	body.CanvasPosition = Vector2.zero
 	Panels.refresh()
+end
+
+-- Open the shop with one item's buy card (used by the post-match fade preview).
+function Panels.openItem(id: string)
+	Panels.open("shop")
+	local store = Net.state and Net.state.store
+	if not store then
+		return
+	end
+	local found = nil
+	for _, it in ipairs(store.featured or {}) do
+		if it.id == id then
+			found = it
+		end
+	end
+	for _, list in pairs(store.shelves or {}) do
+		for _, it in ipairs(list) do
+			if it.id == id then
+				found = it
+			end
+		end
+	end
+	if found and found.canBuy then
+		openConfirm({ kind = "item", id = found.id, name = found.name, icon = found.icon, price = found.price, desc = found.desc }, store)
+	elseif found then
+		Hud.note(found.why or "Not in the shop right now.")
+	end
+end
+
+-- Roblox invite prompt; the friend's join carries "ref:<you>" so you both get the Torchbearer Sash.
+function Panels.invite()
+	local ok = pcall(function()
+		local opts = Instance.new("ExperienceInviteOptions")
+		opts.PromptMessage = "Play a round of " .. Names.EVENT_SHORT .. " with me"
+		opts.LaunchData = "ref:" .. tostring(Players.LocalPlayer.UserId)
+		if SocialService:CanSendGameInviteAsync(Players.LocalPlayer) then
+			SocialService:PromptGameInvite(Players.LocalPlayer, opts)
+		end
+	end)
+	if not ok then
+		Hud.note("Invites aren't available on this device.")
+	end
 end
 
 function Panels.close()

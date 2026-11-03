@@ -47,6 +47,7 @@ local ctx: any = {
 	Gallery = require(Services.GalleryService),
 	Purchase = require(Services.PurchaseService),
 	Look = require(Services.LookService),
+	Hall = require(Services.HallService),
 	Remotes = { Action = action, Push = push },
 }
 
@@ -68,7 +69,7 @@ function ctx.handle(name: string, fn: (Player, any, any, any) -> (boolean, strin
 	handlers[name] = fn
 end
 
-for _, name in ipairs({ "Progress", "Bots", "Match", "Gallery", "Purchase" }) do
+for _, name in ipairs({ "Progress", "Bots", "Match", "Gallery", "Purchase", "Hall" }) do
 	local svc = ctx[name]
 	if svc.init then
 		svc.init(ctx)
@@ -100,7 +101,7 @@ Players.PlayerRemoving:Connect(function(p)
 end)
 
 ctx.Data.start()
-for _, name in ipairs({ "Look", "Progress", "Bots", "Gallery", "Purchase", "Match" }) do
+for _, name in ipairs({ "Look", "Progress", "Bots", "Gallery", "Purchase", "Match", "Hall" }) do
 	local svc = ctx[name]
 	if svc.start then
 		svc.start()

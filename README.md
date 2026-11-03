@@ -49,6 +49,24 @@ v2 has not been play-tested in live Roblox Studio yet. Everything below passes o
 
 Fair-play rules for v3 are in tests: nothing random, no pressure words, every paid perk casual-only, Trail Boots off at 10 left, bundles always a real saving, every ID ships as 0.
 
+## What's in v4: weapons you can see, moves that move, and a season
+
+| Area | Status |
+|---|---|
+| Held weapon meshes built from parts: every bow, spear and knife skin looks different in your hand, on statues and in try-on (tested: no two skins share a shape) | **Playable in Studio** |
+| Real pose and emote animations (8 poses, 7 emotes, with props like a lantern, thermos and crown), played on every client | **Playable in Studio**; check joint timing (PUBLISHING 6i) |
+| Rusty speaks: a voice babble per pack, with slots for real recordings | **Playable in Studio** |
+| Weapon mastery (5 levels per skin, brighter tracers, ★ in the kill feed, ✦ on your nametag at max) | **Playable in Studio** |
+| Victory Podium after every match (top 3 as statues, shown to the whole lobby) and a weekly Hall of Champions | **Built**; statues need API access to show real avatars |
+| Knockout finishers by fade style (column, comet, lanterns, petals, sunburst) | **Playable in Studio** |
+| Try before you buy: a private practice double for weapons, poses, emotes and fades | **Playable in Studio** |
+| Calm offer cards: free First Light pose on your first win, one fade preview after a match with a knockout (max 2 shop cards a session, "No thanks" sticks), a Gallery "help your partner" gift card | **Playable in Studio** |
+| Six named weekly drops (18 items) on a fixed schedule, a "Next week" row, and the R$ 4,999 First Light Grand Collection | **Playable in Studio** |
+| Premium/Plus monthly member cosmetic, Daily Ten bonus, invite a friend (both get the Torchbearer Sash) | **Built**; Plus and invites need a published game |
+| Season 2 "High Harvest" skeleton (track, 12 items, rules, twists) | Plan only, not live |
+
+Still fair: nothing random for Robux, no timers or pressure copy (tested), every card hidden when policy hides paid items, boosts casual-only.
+
 ## Project layout
 
 ```

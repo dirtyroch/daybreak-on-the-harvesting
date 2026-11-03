@@ -60,7 +60,7 @@ Monetization.Products = {
 } :: { [string]: Product }
 
 -- One developer product per shop price point (see Store.luau). Created from Store.TIERS.
-local SHOP_TIERS = { 25, 49, 99, 149, 199, 299, 399, 499, 799, 1299, 1999 }
+local SHOP_TIERS = { 25, 49, 99, 149, 199, 299, 399, 499, 799, 1299, 1999, 4999 }
 for _, p in ipairs(SHOP_TIERS) do
 	Monetization.Products["Shop" .. p] = {
 		id = 0,

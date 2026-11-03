@@ -28,6 +28,8 @@ local ReceiptLedger = require(Shared.Logic.ReceiptLedger)
 local Policy = require(Shared.Logic.Policy)
 local Store = require(Shared.Store)
 local Names = require(Shared.Names)
+local Content = require(Shared.Content)
+local Offers = require(Shared.Offers)
 Store.addReachPride(Names.REACH_LIST)
 
 local PurchaseService = {}
@@ -100,6 +102,9 @@ function PurchaseService.availability(player: Player?): any
 		active = player ~= nil and PurchaseService.isPatron(player),
 	}
 	out.privateServerPrice = Monetization.PRIVATE_SERVER_PRICE
+	out.member = player ~= nil and PurchaseService.isMember(player)
+	out.memberItem = Store.memberItemFor(tonumber(os.date("!%Y%m")) or 0)
+	out.plusAvailable = Policy.shopVisible(pol)
 	return out
 end
 
@@ -124,7 +129,7 @@ function PurchaseService.shopView(player: Player): any
 	end
 	local shelves = {}
 	for _, it in ipairs(Store.ITEMS) do
-		if not it.rot then
+		if not it.rot and not it.earned then
 			shelves[it.cat] = shelves[it.cat] or {}
 			table.insert(shelves[it.cat], card(it))
 		end
@@ -136,8 +141,19 @@ function PurchaseService.shopView(player: Player): any
 		table.insert(bundles, { id = b.id, name = b.name, price = b.price, icon = b.icon, desc = b.desc, value = Store.value(b, nil), missing = Store.value(b, owned), canBuy = ok, why = why, once = b.once, count = #b.items })
 	end
 	local nextWeek = Store.weekStart(wk + 1)
+	-- v4: what's coming next week (names only, so players can plan; no countdown copy)
+	local upcoming = {}
+	for _, it in ipairs(Store.rotation(wk + 1)) do
+		table.insert(upcoming, { id = it.id, name = it.name, icon = it.icon, color = it.color, new = it.drop ~= nil and not Store.released(it, wk) })
+	end
+	local dropNow = Store.dropOf(wk)
+	local dropNext = Store.dropOf(wk + 1)
 	return {
 		week = wk,
+		upcoming = upcoming,
+		dropName = dropNow and Store.DROP_NAMES[dropNow] or nil,
+		nextDropName = dropNext and Store.DROP_NAMES[dropNext] or nil,
+		mastery = data and data.mastery or {},
 		changesOn = os.date("!%A %b %d", nextWeek),
 		cycle = Store.cycleWeeks(),
 		featured = featured,
@@ -426,6 +442,7 @@ function PurchaseService.patronPerks(player: Player)
 	data.patronMonth = month
 	data.owned["patron_seal"] = true
 	data.owned["patron_cloak_" .. month] = true
+	data.owned["emote_patron"] = true
 	ctx.Progress.skipTiers(player, Config.FairPlay.patronSkips)
 	ctx.toast(player, "📜 Patron Club: this month's cloak and 2 Tier Skips are in your Locker. Thank you!", "good")
 end
@@ -443,6 +460,61 @@ function PurchaseService.checkSubscription(player: Player)
 		r.sub = ok and type(status) == "table" and status.IsSubscribed == true
 	end
 	PurchaseService.patronPerks(player)
+end
+
+-- ===== v4: member perk, fade preview =====
+-- Roblox Plus subscribers (and legacy Premium members) get one fixed free cosmetic a month.
+-- Roblox no longer runs Premium Payouts; Plus pays creators per signup and per subscriber
+-- engagement instead (see PUBLISHING.md 6h), so this is the thank-you that brings them back.
+function PurchaseService.isMember(player: Player): boolean
+	local ok, sub = pcall(function()
+		return (player :: any).HasRobloxSubscription
+	end)
+	if ok and sub == true then
+		return true
+	end
+	return player.MembershipType == Enum.MembershipType.Premium
+end
+
+function PurchaseService.memberPerk(player: Player)
+	local data = ctx.Progress.dataOf(player)
+	if not data or not PurchaseService.isMember(player) then
+		return
+	end
+	local month = tonumber(os.date("!%Y%m")) or 0
+	if data.memberMonth == month then
+		return
+	end
+	data.memberMonth = month
+	local id = Store.memberItemFor(month)
+	local it = Store.byId[id]
+	data.owned[id] = true
+	ctx.Progress.markDirty(player)
+	ctx.toast(player, "➕ Thanks for being a Roblox member: " .. (it and it.name or id) .. " is in your Locker.", "good")
+end
+
+-- After a match with a knockout: one calm "see your knockout with this fade" card, at most
+-- Offers.MAX_PER_SESSION times a session, never for accounts whose policy hides the shop.
+local previewsShown: { [Player]: number } = {}
+function PurchaseService.previewFor(player: Player, knocks: number): any?
+	if not Policy.shopVisible(PurchaseService.policyOf(player)) then
+		return nil
+	end
+	if (previewsShown[player] or 0) >= Offers.MAX_PER_SESSION then
+		return nil
+	end
+	local data = ctx.Progress.dataOf(player)
+	if not data then
+		return nil
+	end
+	local card = Offers.fadePreview(data.owned, Store.week(os.time()), knocks)
+	if card then
+		previewsShown[player] = (previewsShown[player] or 0) + 1
+		local f = Content.FADES[card.itemId or ""]
+		card.style = f and f.style or "column"
+		card.color = f and f.color or "#FFD36B"
+	end
+	return card
 end
 
 -- Roblox Plus: calm card in the shop; Roblox pays the game for each new member it brings in.
@@ -520,6 +592,7 @@ function PurchaseService.start()
 	end
 	Players.PlayerRemoving:Connect(function(player: Player)
 		policies[player] = nil
+		previewsShown[player] = nil
 	end)
 	MarketplaceService.ProcessReceipt = processReceipt
 	pcall(function()

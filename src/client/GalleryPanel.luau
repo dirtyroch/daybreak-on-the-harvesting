@@ -33,6 +33,12 @@ local function rebuild()
 			rebuild()
 		end)
 		UI.pad(b, 8)
+		-- v4: show each contender's look (weapon skin + mastery stars, fade) on the right
+		local look = c.look
+		if look and (look.weapon or look.fade) then
+			local txt = (look.weapon or "") .. ((look.stars and look.stars ~= "") and (" " .. look.stars) or "") .. (look.fade and ("  ✦ " .. look.fade) or "")
+			UI.label(txt, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Size = UDim2.new(0.45, 0, 1, 0), TextSize = 12, Font = T.body, TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = look.weaponColor and Color3.fromHex(look.weaponColor) or T.dim, Parent = b })
+		end
 	end
 	UI.clear(gifts)
 	for i, g in ipairs(view.gifts) do

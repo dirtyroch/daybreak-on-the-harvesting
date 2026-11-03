@@ -664,6 +664,20 @@ builders.settings = function(s: any)
 			Net.act("setMode", m.id)
 		end)
 	end
+	-- v6: Rusty's checklist. Skipped (or timed out) players can bring it back and still earn the reward.
+	local cl = s.checklist
+	if cl then
+		local r = row(48, #opts + 2)
+		local status = if cl.finished then ("Rusty's checklist: done. " .. cl.rewardName .. " unlocked")
+			elseif cl.canReopen then ("Rusty's checklist (finish it for the " .. cl.rewardName .. " title)")
+			else "Rusty's checklist: showing in the top-left"
+		UI.label(status, { Name = "ChecklistStatus", Size = UDim2.new(1, -200, 1, 0), TextSize = 17, Font = T.body, TextWrapped = true, Parent = r })
+		if cl.canReopen then
+			UI.button("Reopen", T.green, { Name = "ReopenChecklist", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 150, 0, 34), Parent = r }, function()
+				Net.act("onboardReopen")
+			end)
+		end
+	end
 end
 
 local partyState: any = nil

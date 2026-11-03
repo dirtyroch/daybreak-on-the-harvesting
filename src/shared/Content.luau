@@ -78,6 +78,7 @@ Content.TITLES = {
 	title_darling = "Darling of the Spire",
 	title_veilbreaker = "Veil Breaker",
 	title_turncoat = "Pact Snapper",
+	title_rustys_pick = "Rusty's Pick", -- v6: finish Rusty's first-match checklist (Onboarding.REWARD)
 } :: { [string]: string }
 
 -- Rusty's lines. Short, warm, a bit rough around the edges. Never mean.

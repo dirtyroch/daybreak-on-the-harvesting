@@ -178,6 +178,12 @@ Members (`player.HasRobloxSubscription`, falling back to `MembershipType == Prem
 - **Season 2 "High Harvest"** opens at season week 10 (`Store.SEASON2_WEEK`): four drops of three items in weeks 10–13, plus the **High Harvest Collection** (`high_harvest`, R$ 1,999 for 12 items worth R$ 2,488). No setup is needed; everything uses the shop vouchers.
 - **Funnels:** the server logs the onboarding funnel (`LogOnboardingFunnelStepEvent`: joined, first match, the five checklist steps, second match, first shop open) and a `ShopFirstPurchase` funnel (`LogFunnelStepEvent`: shop open, item view, try on, prompt, purchase; only until the first purchase). See Creator Hub > Analytics > Funnels after launch.
 - **Share moments** use `CaptureService:TakeScreenshotCaptureAsync` and `PromptShareCapture`, shown only when `PolicyService` says `IsContentSharingAllowed`. Test in the published game.
+
+### 6k. v6: skippable checklist and Rusty's Pick
+
+- Rusty's first-match checklist has a **Skip** button with one calm confirm. Skipping is saved (`onboarding.skipped`) and keeps progress; steps don't count while it's skipped.
+- **Settings > Rusty's checklist > Reopen** brings it back (also after the 5-match auto-hide). Finishing all five gives 120 Renown in total plus the **Rusty's Pick** nametag title (`title_rustys_pick`, cosmetic only, earned, never sold). No setup needed.
+- Test in Studio: Skip, check Settings shows Reopen, reopen, finish the five steps and confirm the title appears in the Locker.
 - **Family Rules** for private servers is free and on by default; the owner can switch it off in Party.
 
 ### 6i. Things to check in Studio before launch

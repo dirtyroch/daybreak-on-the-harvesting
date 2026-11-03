@@ -1236,6 +1236,80 @@ test("v5 onboarding: five steps, any order, softer bots for 3 matches, hides aft
 		truthy(#st.tip > 10)
 	end
 end)
+test("v6 checklist: Skip hides it, keeps progress, and stops counting steps", function()
+	local s = Onboarding.new()
+	Onboarding.mark(s, "crate")
+	truthy(Onboarding.skip(s), "skip works")
+	eq(s.skipped, true)
+	eq(Onboarding.current(s, 0), nil)
+	eq(Onboarding.active(s, 0), false)
+	eq(#Onboarding.mark(s, "weapon"), 0) -- nothing counted while skipped
+	eq(Onboarding.skip(s), false) -- already skipped
+	eq(Onboarding.progress(s), 1) -- progress kept
+	truthy(Onboarding.canReopen(s, 0))
+end)
+test("v6 checklist: reopen from Settings (even after 5 matches) and still earn Rusty's Pick once", function()
+	local s = Onboarding.new()
+	Onboarding.mark(s, "crate")
+	Onboarding.skip(s)
+	truthy(Onboarding.reopen(s, 9), "reopen after skip")
+	eq(s.skipped, false)
+	truthy(Onboarding.active(s, 9), "reopened lists ignore the 5-match auto-hide")
+	eq(Onboarding.current(s, 9).id, "weapon")
+	eq(Onboarding.claimReward(s), false) -- not finished yet
+	for _, e in ipairs({ "weapon", "eat", "veil", "gallery" }) do
+		Onboarding.mark(s, e)
+	end
+	truthy(s.finished)
+	eq(Onboarding.claimReward(s), true)
+	eq(Onboarding.claimReward(s), false) -- once only
+	eq(Onboarding.reopen(s, 9), false) -- nothing to reopen when done
+	eq(Onboarding.skip(s), false)
+	-- a list that timed out after 5 matches (never skipped) can also be reopened
+	local t = Onboarding.new()
+	eq(Onboarding.current(t, 5), nil)
+	truthy(Onboarding.canReopen(t, 5))
+	truthy(Onboarding.reopen(t, 5))
+	eq(Onboarding.current(t, 5).id, "crate")
+	-- a running list has nothing to reopen
+	eq(Onboarding.canReopen(Onboarding.new(), 0), false)
+end)
+test("v6 checklist reward: stated plainly, cosmetic-only title, never sold", function()
+	local r = Onboarding.REWARD
+	eq(Content.TITLES[r.id], r.name)
+	eq(r.name, "Rusty's Pick")
+	eq(Store.byId[r.id], nil) -- not a shop item, not in any bundle
+	for _, b in ipairs(Store.BUNDLES) do
+		for _, id in ipairs((b :: any).items or {}) do
+			truthy(id ~= r.id, "reward not in a bundle")
+		end
+	end
+	eq(Onboarding.totalXp(), 120)
+	local line = string.format(Onboarding.COPY.reward, Onboarding.totalXp())
+	truthy(line:find("Rusty's Pick", 1, true) and line:find("120", 1, true) and line:find("all 5", 1, true), line)
+	truthy(Onboarding.COPY.skipAsk:find("Skip Rusty's checklist?", 1, true) and Onboarding.COPY.skipAsk:find("Settings", 1, true), "confirm names the reward and where to reopen")
+	for k, txt in pairs(Onboarding.COPY) do
+		local low = txt:lower()
+		for _, w in ipairs(Store.PRESSURE_WORDS) do
+			truthy(not low:find(w, 1, true), k .. " uses pressure word " .. w)
+		end
+	end
+end)
+test("v6 checklist: old saves get skip/reward flags; server, client and Settings are wired", function()
+	local old = { onboarding = { done = { crate = true }, finished = false } }
+	local d = Reconcile.fill(old, DefaultData.new())
+	eq(d.onboarding.skipped, false)
+	eq(d.onboarding.rewarded, false)
+	eq(d.onboarding.reopened, false)
+	eq(d.onboarding.done.crate, true)
+	local ps = fs.readFile("src/server/Services/ProgressService.luau")
+	truthy(ps:find('ctx.handle("onboardSkip"', 1, true) and ps:find('ctx.handle("onboardReopen"', 1, true))
+	truthy(ps:find("Onboarding.claimReward", 1, true) and ps:find("checklist = ProgressService.checklistView", 1, true))
+	local v5 = fs.readFile("src/client/V5.luau")
+	truthy(v5:find('"Skip"', 1, true) and v5:find('Net.act("onboardSkip")', 1, true) and v5:find("SkipConfirm", 1, true))
+	local panels = fs.readFile("src/client/Panels.luau")
+	truthy(panels:find('Net.act("onboardReopen")', 1, true), "Settings can reopen")
+end)
 test("v5 comeback: welcome after 3 days, once per return, catch-up never past a weekly pace", function()
 	local s = Comeback.new()
 	eq(Comeback.onJoin(s, 100, 2, 3), nil) -- first visit

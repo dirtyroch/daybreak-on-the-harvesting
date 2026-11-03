@@ -67,6 +67,17 @@ Fair-play rules for v3 are in tests: nothing random, no pressure words, every pa
 
 Still fair: nothing random for Robux, no timers or pressure copy (tested), every card hidden when policy hides paid items, boosts casual-only.
 
+## What's in v6: a skippable checklist with a stated reward
+
+| Area | Status |
+|---|---|
+| **Skip button** on Rusty's first-match checklist, with one calm confirm ("Skip Rusty's checklist? You'll miss the finish reward, the Rusty's Pick title. Your progress is kept, and you can reopen the checklist in Settings any time.") and **Keep it** / **Skip it**. The choice is saved | **Playable in Studio** |
+| **The reward is stated on the checklist**: "Finish all 5: 120 Renown + the Rusty's Pick title, only for finishers." | **Playable in Studio** |
+| **Rusty's Pick** (`title_rustys_pick`): a nametag title granted once on finishing, equip it in the Locker. Cosmetic only, never sold, not in any bundle (tested) | **Playable in Studio** |
+| **Reopen in Settings**: a skipped checklist (or one that hid itself after 5 matches) comes back with its progress, ignores the 5-match auto-hide, and still earns Rusty's Pick | **Playable in Studio** |
+
+Old saves get the new `skipped` / `reopened` / `rewarded` flags from Reconcile. Previews: `marketing/ui-checklist-skip.png` and `marketing/ui-settings-reopen.png` (UI mockups over an in-engine render).
+
 ## What's in v5: the first five minutes, family parties and Founders' Dawn
 
 | Area | Status |

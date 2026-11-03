@@ -161,6 +161,7 @@ function ProgressService.snapshot(player: Player): any?
 		invites = data.referral.brought,
 		-- v5
 		onboarding = ProgressService.onboardingView(data),
+		checklist = ProgressService.checklistView(data),
 		homecoming = data.comeback.homecoming,
 		festival = ProgressService.festivalView(data),
 		mode = data.settings.mode,
@@ -555,13 +556,55 @@ function ProgressService.onboardingView(data: any): any
 		return nil
 	end
 	local n, total = Onboarding.progress(data.onboarding)
-	return { title = cur.title, tip = cur.tip, done = n, total = total }
+	return {
+		title = cur.title,
+		tip = cur.tip,
+		done = n,
+		total = total,
+		reward = string.format(Onboarding.COPY.reward, Onboarding.totalXp()),
+		rewardName = Onboarding.REWARD.name,
+		skipAsk = Onboarding.COPY.skipAsk,
+		skipYes = Onboarding.COPY.skipYes,
+		skipNo = Onboarding.COPY.skipNo,
+	}
 end
+
+-- v6: Settings shows "Reopen" while the checklist is unfinished and hidden (skipped or timed out).
+function ProgressService.checklistView(data: any): any
+	return {
+		canReopen = Onboarding.canReopen(data.onboarding, data.stats.matches),
+		finished = data.onboarding.finished,
+		skipped = data.onboarding.skipped == true,
+		rewardName = Onboarding.REWARD.name,
+	}
+end
+
+local function onboardSkip(player: Player): (boolean, string?)
+	local data = ProgressService.dataOf(player)
+	if not data or not Onboarding.skip(data.onboarding) then
+		return false, nil
+	end
+	ProgressService.markDirty(player)
+	task.defer(ProgressService.sendState, player)
+	return true, Onboarding.COPY.skipped
+end
+
+local function onboardReopen(player: Player): (boolean, string?)
+	local data = ProgressService.dataOf(player)
+	if not data or not Onboarding.reopen(data.onboarding, data.stats.matches) then
+		return false, nil
+	end
+	ProgressService.markDirty(player)
+	task.defer(ProgressService.sendState, player)
+	return true, Onboarding.COPY.reopened
+end
+ProgressService.onboardSkip = onboardSkip
+ProgressService.onboardReopen = onboardReopen
 
 -- A new contender did one of the checklist things (open a crate, pick up a weapon, ...).
 function ProgressService.onboard(player: Player, event: string)
 	local data = ProgressService.dataOf(player)
-	if not data or data.onboarding.finished or data.stats.matches >= Onboarding.HIDE_AFTER_MATCHES then
+	if not data or not Onboarding.active(data.onboarding, data.stats.matches) then
 		return
 	end
 	local done = Onboarding.mark(data.onboarding, event)
@@ -579,7 +622,12 @@ function ProgressService.onboard(player: Player, event: string)
 			nextTip = nextStep and nextStep.tip or nil,
 			finished = data.onboarding.finished,
 			line = data.onboarding.finished and Content.RUSTY.onboardDone or nil,
+			reward = data.onboarding.finished and Onboarding.REWARD.name or nil,
 		})
+	end
+	if Onboarding.claimReward(data.onboarding) then
+		data.owned[Onboarding.REWARD.id] = true
+		ctx.toast(player, Onboarding.COPY.done, "good")
 	end
 	ProgressService.markDirty(player)
 	task.defer(ProgressService.sendState, player)
@@ -1054,6 +1102,8 @@ function ProgressService.init(c: any)
 	ctx.handle("prestige", prestige)
 	ctx.handle("setReach", setReach)
 	ctx.handle("setting", setting)
+	ctx.handle("onboardSkip", onboardSkip)
+	ctx.handle("onboardReopen", onboardReopen)
 	ctx.handle("quip", setQuip)
 	ctx.handle("equip", equip)
 	ctx.handle("emote", emote)

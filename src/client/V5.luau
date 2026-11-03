@@ -20,6 +20,8 @@ local Sfx = require(script.Parent.Sfx)
 local Hud = require(script.Parent.Hud)
 local Rusty = require(script.Parent.Rusty)
 local OfferCard = require(script.Parent.OfferCard)
+local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
+local Onboarding = require(Shared.Logic.Onboarding)
 local T = UI.Theme
 
 local V5 = {}
@@ -27,6 +29,9 @@ local checklist: Frame = nil :: any
 local stepTitle: TextLabel = nil :: any
 local stepTip: TextLabel = nil :: any
 local stepCount: TextLabel = nil :: any
+local stepReward: TextLabel = nil :: any
+local skipAsk: Frame = nil :: any
+local skipAskText: TextLabel = nil :: any
 local banner: TextLabel = nil :: any
 local partyCard: Frame = nil :: any
 local shareAllowed: boolean? = nil
@@ -93,6 +98,10 @@ local function refreshChecklist()
 		stepTitle.Text = "Rusty's tip: " .. ob.title
 		stepTip.Text = ob.tip
 		stepCount.Text = string.format("%d / %d", ob.done, ob.total)
+		stepReward.Text = "🎁 " .. (ob.reward or "")
+		skipAskText.Text = ob.skipAsk or ""
+	else
+		skipAsk.Visible = false
 	end
 	local f = s and s.festival
 	banner.Visible = f ~= nil and Hud.mode == "lobby"
@@ -123,13 +132,30 @@ local function showPartyCard(d: any)
 end
 
 function V5.mount(parent: Frame)
-	checklist = UI.frame({ Name = "FirstSteps", Position = UDim2.new(0, 16, 0, 120), Size = UDim2.new(0, 300, 0, 74), BackgroundColor3 = T.panel, BackgroundTransparency = 0.1, Visible = false, ZIndex = 4, Parent = parent })
+	checklist = UI.frame({ Name = "FirstSteps", Position = UDim2.new(0, 16, 0, 120), Size = UDim2.new(0, 320, 0, 128), BackgroundColor3 = T.panel, BackgroundTransparency = 0.1, Visible = false, ZIndex = 4, Parent = parent })
 	UI.corner(checklist, 12)
 	UI.stroke(checklist, T.gold, 1)
 	UI.pad(checklist, 8)
 	stepTitle = UI.label("", { Size = UDim2.new(1, -50, 0, 22), TextSize = 16, TextColor3 = T.gold, ZIndex = 5, Parent = checklist })
 	stepCount = UI.label("", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Size = UDim2.new(0, 48, 0, 22), TextSize = 14, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 5, Parent = checklist })
 	stepTip = UI.label("", { Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, 0, 0, 34), TextSize = 13, Font = T.body, TextWrapped = true, TextColor3 = T.text, ZIndex = 5, Parent = checklist })
+	-- v6: the finish reward, stated plainly, and a clear Skip button with a calm confirm.
+	stepReward = UI.label("", { Name = "Reward", Position = UDim2.new(0, 0, 0, 60), Size = UDim2.new(1, -70, 0, 50), TextSize = 13, Font = T.body, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, TextColor3 = T.gold, ZIndex = 5, Parent = checklist })
+	UI.button("Skip", T.card, { Name = "Skip", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, 0, 1, 0), Size = UDim2.new(0, 62, 0, 28), TextSize = 14, ZIndex = 5, Parent = checklist }, function()
+		skipAsk.Visible = true
+	end)
+	skipAsk = UI.frame({ Name = "SkipConfirm", Position = UDim2.new(0, 0, 1, 8), Size = UDim2.new(1, 0, 0, 118), BackgroundColor3 = T.panel, Visible = false, ZIndex = 8, Parent = checklist })
+	UI.corner(skipAsk, 10)
+	UI.stroke(skipAsk, T.gold, 1)
+	UI.pad(skipAsk, 8)
+	skipAskText = UI.label("", { Size = UDim2.new(1, 0, 0, 66), TextSize = 13, Font = T.body, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 9, Parent = skipAsk })
+	UI.button(Onboarding.COPY.skipNo, T.green, { Name = "KeepGoing", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(0.5, -4, 0, 30), TextSize = 14, ZIndex = 9, Parent = skipAsk }, function()
+		skipAsk.Visible = false
+	end)
+	UI.button(Onboarding.COPY.skipYes, T.card, { Name = "ConfirmSkip", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, 0, 1, 0), Size = UDim2.new(0.5, -4, 0, 30), TextSize = 14, ZIndex = 9, Parent = skipAsk }, function()
+		skipAsk.Visible = false
+		Net.act("onboardSkip")
+	end)
 	banner = UI.label("", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 8), Size = UDim2.new(0, 520, 0, 30), TextSize = 16, TextXAlignment = Enum.TextXAlignment.Center, BackgroundTransparency = 0.2, BackgroundColor3 = Color3.fromHex("#5A2E12"), TextColor3 = Color3.fromHex("#FFD9A0"), Visible = false, ZIndex = 4, Parent = parent })
 	UI.corner(banner, 10)
 	partyCard = UI.frame({ Name = "PartyCard", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 16, 1, -150), Size = UDim2.new(0, 320, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = T.panel, Visible = false, ZIndex = 9, Parent = parent })
@@ -143,6 +169,9 @@ function V5.mount(parent: Frame)
 		Fx.toast(string.format("✅ %s  +%d", d.done, d.xp), "good")
 		if d.finished and d.line then
 			Fx.toast("“" .. d.line .. "”", "good")
+			if d.reward then
+				Fx.toast("🏅 Title unlocked: " .. d.reward .. " (equip it in the Locker)", "good")
+			end
 		elseif d.nextTitle then
 			Fx.toast("Next: " .. d.nextTitle, "info")
 		end

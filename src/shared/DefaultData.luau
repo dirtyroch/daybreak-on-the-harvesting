@@ -56,7 +56,7 @@ function DefaultData.new(): any
 		memberMonth = -1, -- last month the Roblox Plus / Premium member gift was granted
 		dailyTen = { day = -1, seconds = 0, claimed = false }, -- Daily Ten play bonus
 		referral = { by = 0, rewarded = false, brought = 0 }, -- friend invites
-		onboarding = { done = {}, finished = false }, -- first-match checklist (Onboarding.luau)
+		onboarding = { done = {}, finished = false, skipped = false, reopened = false, rewarded = false }, -- first-match checklist (Onboarding.luau)
 		comeback = { lastSeenDay = -1, homecoming = 0, catchUpTier = 0, welcomedDay = -1 }, -- Comeback.luau
 		festival = {}, -- yearly festival progress (Events.progressFor)
 		shared = 0, -- moments shared with the Roblox share sheet

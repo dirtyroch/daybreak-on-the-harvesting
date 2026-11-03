@@ -1042,6 +1042,7 @@ Content.TITLES = {
 	title_darling = "Darling of the Spire",
 	title_veilbreaker = "Veil Breaker",
 	title_turncoat = "Pact Snapper",
+	title_rustys_pick = "Rusty's Pick", -- v6: finish Rusty's first-match checklist (Onboarding.REWARD)
 } :: { [string]: string }
 
 -- Rusty's lines. Short, warm, a bit rough around the edges. Never mean.
@@ -1229,7 +1230,7 @@ function DefaultData.new(): any
 		memberMonth = -1, -- last month the Roblox Plus / Premium member gift was granted
 		dailyTen = { day = -1, seconds = 0, claimed = false }, -- Daily Ten play bonus
 		referral = { by = 0, rewarded = false, brought = 0 }, -- friend invites
-		onboarding = { done = {}, finished = false }, -- first-match checklist (Onboarding.luau)
+		onboarding = { done = {}, finished = false, skipped = false, reopened = false, rewarded = false }, -- first-match checklist (Onboarding.luau)
 		comeback = { lastSeenDay = -1, homecoming = 0, catchUpTier = 0, welcomedDay = -1 }, -- Comeback.luau
 		festival = {}, -- yearly festival progress (Events.progressFor)
 		shared = 0, -- moments shared with the Roblox share sheet
@@ -2304,6 +2305,11 @@ return NearMiss
 	reward. Nothing blocks play: the steps complete from things you'd do anyway, and the
 	checklist hides itself once done or after 5 matches.
 
+	v6: the checklist is skippable. A Skip button asks once (calm copy, no pressure words) and
+	the choice is saved. Skipping keeps your progress; reopen it from Settings any time and you
+	can still finish it for the reward. Finishing all five gives the step Renown (120 in total)
+	plus Rusty's Pick, a nametag title only checklist finishers get (cosmetic only).
+
 	It also softens the first matches against Stand-In bots (only bots, never real players):
 	their damage to a contender in their first 3 matches is scaled down.
 ]]
@@ -2321,15 +2327,75 @@ Onboarding.HIDE_AFTER_MATCHES = 5
 Onboarding.SOFT_MATCHES = 3
 Onboarding.SOFT_BOT_DAMAGE = 0.6
 
-export type State = { done: { [string]: boolean }, finished: boolean }
+-- What finishing all five steps gives (stated plainly on the checklist).
+Onboarding.REWARD = { id = "title_rustys_pick", name = "Rusty's Pick", kind = "nametag title" }
+Onboarding.COPY = {
+	reward = "Finish all 5: %d Renown + the Rusty's Pick title, only for finishers.",
+	skipAsk = "Skip Rusty's checklist? You'll miss the finish reward, the Rusty's Pick title. Your progress is kept, and you can reopen the checklist in Settings any time.",
+	skipYes = "Skip it",
+	skipNo = "Keep it",
+	skipped = "Checklist hidden. Reopen it any time in Settings to finish it for Rusty's Pick.",
+	reopened = "Rusty's checklist is back. Finish it for the Rusty's Pick title.",
+	done = "Checklist done! Title unlocked: Rusty's Pick.",
+}
+
+export type State = { done: { [string]: boolean }, finished: boolean, skipped: boolean?, reopened: boolean?, rewarded: boolean? }
 
 function Onboarding.new(): State
-	return { done = {}, finished = false }
+	return { done = {}, finished = false, skipped = false, reopened = false, rewarded = false }
+end
+
+function Onboarding.totalXp(): number
+	local n = 0
+	for _, st in ipairs(Onboarding.STEPS) do
+		n += st.xp
+	end
+	return n
+end
+
+-- Is the checklist running (shown and counting steps)? Skipped hides it; after 5 matches it
+-- hides itself unless the player reopened it from Settings.
+function Onboarding.active(s: State, matchesPlayed: number): boolean
+	if s.finished or s.skipped then
+		return false
+	end
+	return s.reopened == true or matchesPlayed < Onboarding.HIDE_AFTER_MATCHES
+end
+
+-- Can Settings offer "Reopen Rusty's checklist"? (not finished and not showing right now)
+function Onboarding.canReopen(s: State, matchesPlayed: number): boolean
+	return not s.finished and not Onboarding.active(s, matchesPlayed)
+end
+
+function Onboarding.skip(s: State): boolean
+	if s.finished or s.skipped then
+		return false
+	end
+	s.skipped = true
+	return true
+end
+
+function Onboarding.reopen(s: State, matchesPlayed: number): boolean
+	if not Onboarding.canReopen(s, matchesPlayed) then
+		return false
+	end
+	s.skipped = false
+	s.reopened = true
+	return true
+end
+
+-- Once, when the checklist is finished: true means grant Onboarding.REWARD now.
+function Onboarding.claimReward(s: State): boolean
+	if s.finished and not s.rewarded then
+		s.rewarded = true
+		return true
+	end
+	return false
 end
 
 -- The step to show now (the first not done), or nil when finished / hidden.
 function Onboarding.current(s: State, matchesPlayed: number): Step?
-	if s.finished or matchesPlayed >= Onboarding.HIDE_AFTER_MATCHES then
+	if not Onboarding.active(s, matchesPlayed) then
 		return nil
 	end
 	for _, st in ipairs(Onboarding.STEPS) do
@@ -2344,7 +2410,7 @@ end
 -- player does is wasted). Returns the steps completed by this event.
 function Onboarding.mark(s: State, event: string): { Step }
 	local out = {}
-	if s.finished then
+	if s.finished or s.skipped then
 		return out
 	end
 	for _, st in ipairs(Onboarding.STEPS) do
@@ -11236,6 +11302,7 @@ function ProgressService.snapshot(player: Player): any?
 		invites = data.referral.brought,
 		-- v5
 		onboarding = ProgressService.onboardingView(data),
+		checklist = ProgressService.checklistView(data),
 		homecoming = data.comeback.homecoming,
 		festival = ProgressService.festivalView(data),
 		mode = data.settings.mode,
@@ -11630,13 +11697,55 @@ function ProgressService.onboardingView(data: any): any
 		return nil
 	end
 	local n, total = Onboarding.progress(data.onboarding)
-	return { title = cur.title, tip = cur.tip, done = n, total = total }
+	return {
+		title = cur.title,
+		tip = cur.tip,
+		done = n,
+		total = total,
+		reward = string.format(Onboarding.COPY.reward, Onboarding.totalXp()),
+		rewardName = Onboarding.REWARD.name,
+		skipAsk = Onboarding.COPY.skipAsk,
+		skipYes = Onboarding.COPY.skipYes,
+		skipNo = Onboarding.COPY.skipNo,
+	}
 end
+
+-- v6: Settings shows "Reopen" while the checklist is unfinished and hidden (skipped or timed out).
+function ProgressService.checklistView(data: any): any
+	return {
+		canReopen = Onboarding.canReopen(data.onboarding, data.stats.matches),
+		finished = data.onboarding.finished,
+		skipped = data.onboarding.skipped == true,
+		rewardName = Onboarding.REWARD.name,
+	}
+end
+
+local function onboardSkip(player: Player): (boolean, string?)
+	local data = ProgressService.dataOf(player)
+	if not data or not Onboarding.skip(data.onboarding) then
+		return false, nil
+	end
+	ProgressService.markDirty(player)
+	task.defer(ProgressService.sendState, player)
+	return true, Onboarding.COPY.skipped
+end
+
+local function onboardReopen(player: Player): (boolean, string?)
+	local data = ProgressService.dataOf(player)
+	if not data or not Onboarding.reopen(data.onboarding, data.stats.matches) then
+		return false, nil
+	end
+	ProgressService.markDirty(player)
+	task.defer(ProgressService.sendState, player)
+	return true, Onboarding.COPY.reopened
+end
+ProgressService.onboardSkip = onboardSkip
+ProgressService.onboardReopen = onboardReopen
 
 -- A new contender did one of the checklist things (open a crate, pick up a weapon, ...).
 function ProgressService.onboard(player: Player, event: string)
 	local data = ProgressService.dataOf(player)
-	if not data or data.onboarding.finished or data.stats.matches >= Onboarding.HIDE_AFTER_MATCHES then
+	if not data or not Onboarding.active(data.onboarding, data.stats.matches) then
 		return
 	end
 	local done = Onboarding.mark(data.onboarding, event)
@@ -11654,7 +11763,12 @@ function ProgressService.onboard(player: Player, event: string)
 			nextTip = nextStep and nextStep.tip or nil,
 			finished = data.onboarding.finished,
 			line = data.onboarding.finished and Content.RUSTY.onboardDone or nil,
+			reward = data.onboarding.finished and Onboarding.REWARD.name or nil,
 		})
+	end
+	if Onboarding.claimReward(data.onboarding) then
+		data.owned[Onboarding.REWARD.id] = true
+		ctx.toast(player, Onboarding.COPY.done, "good")
 	end
 	ProgressService.markDirty(player)
 	task.defer(ProgressService.sendState, player)
@@ -12129,6 +12243,8 @@ function ProgressService.init(c: any)
 	ctx.handle("prestige", prestige)
 	ctx.handle("setReach", setReach)
 	ctx.handle("setting", setting)
+	ctx.handle("onboardSkip", onboardSkip)
+	ctx.handle("onboardReopen", onboardReopen)
 	ctx.handle("quip", setQuip)
 	ctx.handle("equip", equip)
 	ctx.handle("emote", emote)
@@ -15367,6 +15483,20 @@ builders.settings = function(s: any)
 			Net.act("setMode", m.id)
 		end)
 	end
+	-- v6: Rusty's checklist. Skipped (or timed out) players can bring it back and still earn the reward.
+	local cl = s.checklist
+	if cl then
+		local r = row(48, #opts + 2)
+		local status = if cl.finished then ("Rusty's checklist: done. " .. cl.rewardName .. " unlocked")
+			elseif cl.canReopen then ("Rusty's checklist (finish it for the " .. cl.rewardName .. " title)")
+			else "Rusty's checklist: showing in the top-left"
+		UI.label(status, { Name = "ChecklistStatus", Size = UDim2.new(1, -200, 1, 0), TextSize = 17, Font = T.body, TextWrapped = true, Parent = r })
+		if cl.canReopen then
+			UI.button("Reopen", T.green, { Name = "ReopenChecklist", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 150, 0, 34), Parent = r }, function()
+				Net.act("onboardReopen")
+			end)
+		end
+	end
 end
 
 local partyState: any = nil
@@ -16378,6 +16508,8 @@ local Sfx = require(script.Parent.Sfx)
 local Hud = require(script.Parent.Hud)
 local Rusty = require(script.Parent.Rusty)
 local OfferCard = require(script.Parent.OfferCard)
+local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
+local Onboarding = require(Shared.Logic.Onboarding)
 local T = UI.Theme
 
 local V5 = {}
@@ -16385,6 +16517,9 @@ local checklist: Frame = nil :: any
 local stepTitle: TextLabel = nil :: any
 local stepTip: TextLabel = nil :: any
 local stepCount: TextLabel = nil :: any
+local stepReward: TextLabel = nil :: any
+local skipAsk: Frame = nil :: any
+local skipAskText: TextLabel = nil :: any
 local banner: TextLabel = nil :: any
 local partyCard: Frame = nil :: any
 local shareAllowed: boolean? = nil
@@ -16451,6 +16586,10 @@ local function refreshChecklist()
 		stepTitle.Text = "Rusty's tip: " .. ob.title
 		stepTip.Text = ob.tip
 		stepCount.Text = string.format("%d / %d", ob.done, ob.total)
+		stepReward.Text = "🎁 " .. (ob.reward or "")
+		skipAskText.Text = ob.skipAsk or ""
+	else
+		skipAsk.Visible = false
 	end
 	local f = s and s.festival
 	banner.Visible = f ~= nil and Hud.mode == "lobby"
@@ -16481,13 +16620,30 @@ local function showPartyCard(d: any)
 end
 
 function V5.mount(parent: Frame)
-	checklist = UI.frame({ Name = "FirstSteps", Position = UDim2.new(0, 16, 0, 120), Size = UDim2.new(0, 300, 0, 74), BackgroundColor3 = T.panel, BackgroundTransparency = 0.1, Visible = false, ZIndex = 4, Parent = parent })
+	checklist = UI.frame({ Name = "FirstSteps", Position = UDim2.new(0, 16, 0, 120), Size = UDim2.new(0, 320, 0, 128), BackgroundColor3 = T.panel, BackgroundTransparency = 0.1, Visible = false, ZIndex = 4, Parent = parent })
 	UI.corner(checklist, 12)
 	UI.stroke(checklist, T.gold, 1)
 	UI.pad(checklist, 8)
 	stepTitle = UI.label("", { Size = UDim2.new(1, -50, 0, 22), TextSize = 16, TextColor3 = T.gold, ZIndex = 5, Parent = checklist })
 	stepCount = UI.label("", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Size = UDim2.new(0, 48, 0, 22), TextSize = 14, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 5, Parent = checklist })
 	stepTip = UI.label("", { Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, 0, 0, 34), TextSize = 13, Font = T.body, TextWrapped = true, TextColor3 = T.text, ZIndex = 5, Parent = checklist })
+	-- v6: the finish reward, stated plainly, and a clear Skip button with a calm confirm.
+	stepReward = UI.label("", { Name = "Reward", Position = UDim2.new(0, 0, 0, 60), Size = UDim2.new(1, -70, 0, 50), TextSize = 13, Font = T.body, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, TextColor3 = T.gold, ZIndex = 5, Parent = checklist })
+	UI.button("Skip", T.card, { Name = "Skip", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, 0, 1, 0), Size = UDim2.new(0, 62, 0, 28), TextSize = 14, ZIndex = 5, Parent = checklist }, function()
+		skipAsk.Visible = true
+	end)
+	skipAsk = UI.frame({ Name = "SkipConfirm", Position = UDim2.new(0, 0, 1, 8), Size = UDim2.new(1, 0, 0, 118), BackgroundColor3 = T.panel, Visible = false, ZIndex = 8, Parent = checklist })
+	UI.corner(skipAsk, 10)
+	UI.stroke(skipAsk, T.gold, 1)
+	UI.pad(skipAsk, 8)
+	skipAskText = UI.label("", { Size = UDim2.new(1, 0, 0, 66), TextSize = 13, Font = T.body, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 9, Parent = skipAsk })
+	UI.button(Onboarding.COPY.skipNo, T.green, { Name = "KeepGoing", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(0.5, -4, 0, 30), TextSize = 14, ZIndex = 9, Parent = skipAsk }, function()
+		skipAsk.Visible = false
+	end)
+	UI.button(Onboarding.COPY.skipYes, T.card, { Name = "ConfirmSkip", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, 0, 1, 0), Size = UDim2.new(0.5, -4, 0, 30), TextSize = 14, ZIndex = 9, Parent = skipAsk }, function()
+		skipAsk.Visible = false
+		Net.act("onboardSkip")
+	end)
 	banner = UI.label("", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 8), Size = UDim2.new(0, 520, 0, 30), TextSize = 16, TextXAlignment = Enum.TextXAlignment.Center, BackgroundTransparency = 0.2, BackgroundColor3 = Color3.fromHex("#5A2E12"), TextColor3 = Color3.fromHex("#FFD9A0"), Visible = false, ZIndex = 4, Parent = parent })
 	UI.corner(banner, 10)
 	partyCard = UI.frame({ Name = "PartyCard", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 16, 1, -150), Size = UDim2.new(0, 320, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = T.panel, Visible = false, ZIndex = 9, Parent = parent })
@@ -16501,6 +16657,9 @@ function V5.mount(parent: Frame)
 		Fx.toast(string.format("✅ %s  +%d", d.done, d.xp), "good")
 		if d.finished and d.line then
 			Fx.toast("“" .. d.line .. "”", "good")
+			if d.reward then
+				Fx.toast("🏅 Title unlocked: " .. d.reward .. " (equip it in the Locker)", "good")
+			end
 		elseif d.nextTitle then
 			Fx.toast("Next: " .. d.nextTitle, "info")
 		end

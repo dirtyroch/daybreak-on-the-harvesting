@@ -186,6 +186,52 @@ Members (`player.HasRobloxSubscription`, falling back to `MembershipType == Prem
 - Test in Studio: Skip, check Settings shows Reopen, reopen, finish the five steps and confirm the title appears in the Locker.
 - **Family Rules** for private servers is free and on by default; the owner can switch it off in Party.
 
+### 6l. Sounds (this pass)
+
+The game already makes noise with sounds that ship inside the Roblox client (`rbxasset://sounds/...`, the same set the default character uses, plus the short electronic ping Rusty already babbled with). Those are marked **working** in `src/shared/SfxIds.luau`. They are a small set, so a bow and a menu click can share a file and only differ by pitch.
+
+The distinct versions are original tones in `audio/original/` (generated for this game, no borrowed music). Each cue's `uploadId` is **0** until you upload that file. A listen-through of the intended mix is `audio/samples/daybreak-original-mix.wav`.
+
+To hear the originals in the game:
+
+1. Creator Hub > your experience > **Development items > Audio**. Upload one file at a time from `audio/original/`.
+2. Copy the numeric id Roblox gives you.
+3. In `src/shared/SfxIds.luau`, set that cue's `uploadId` from `0` to the new id. Cues that share a file (the three Veil levels, the menu clicks) can share one id.
+4. Rebuild and publish the place. Leave an id at 0 and that cue keeps the client stand-in.
+
+Do **not** paste the old catalog numbers back in. They are listed under `SfxIds.retired` as **needs_permission** and the game does not play them. A catalog sound stays silent unless this experience is allowed to use it. If you want one of those specifically, test it in Studio first; if you hear nothing, it is still blocked.
+
+Settings > Master sound off silences every bus. Effects, Arena and Veil, Rusty voice, and menu clicks each have their own level (0–100) and mute, saved on the contender.
+
+### 6m. Optional first person
+
+Settings > View in a match > **First**, or press **V**, the on-screen **View** button, or click the right stick. It only turns on during a match, and it turns itself off while a cutscene, the podium or try-on owns the camera.
+
+What you should see: your hands, the weapon you are holding (same skin as third person), a small ring at the center of the screen, and your torso and legs if you look down. Hats, hair and anything on the head are hidden on your own screen so they do not fill the lens. Other players still see your normal avatar.
+
+What does not change: the server still starts every shot from your character, not from the camera. The client still sends the same mouse point it always did. Field of view is 60, 65 or 70. 70 is as wide as third person. Reduce motion turns off the small weapon sway. There is no aim assist.
+
+Check in Studio (this repo cannot open Studio):
+
+- Play, enter a match, switch to first person, and confirm the head and hair are not stuck in the lens.
+- Shoot a bow, swing a knife, throw a spear. The hit should land on the same people it does in third person.
+- On a phone, the View button is tappable and the ring is slightly larger. On a controller, right-stick click toggles the view.
+- `marketing/fp-view-preview.png` is a **diagram of the hand offsets**, labeled PREVIEW. `marketing/fp-studio-not-captured.png` is the Studio checklist, not a capture.
+
+### 6n. If you already typed asset ids into a Studio copy
+
+This repo still ships monetization, avatar, animation and voice ids as 0 (or empty). A number you typed only inside your Studio place is **not** in this file. Opening this `.rbxlx` does not delete your published experience, but publishing this file **over** that place would replace those numbers with 0.
+
+Keep your ids:
+
+1. In the Studio place that has your numbers, open **ReplicatedStorage > Shared > Monetization**. Write down every pass, product and subscription id that is not 0.
+2. Do the same for **Look** (body, head, hair, clothing, accessory ids), **Store** (`anim` on poses and emotes, `sound` on Rusty packs) and **Content** (`RUSTY_VOICE` sound ids).
+3. Open the new `DaybreakOnTheHarvesting.rbxlx` from this branch. Paste those same numbers into the same fields. Do not change prices or item ids while you do this.
+4. Set the new sound `uploadId`s from step 6l if you uploaded the originals.
+5. Save, then publish that place when you are ready. Do not publish the old file on top of this one, or you will lose the mixer and the first-person view.
+
+Nothing in this pass calls publish, and it does not change the Creator Hub.
+
 ### 6i. Things to check in Studio before launch
 
 - **Held weapons:** grips are set in `Arms.luau` (`grip()`); if a bow sits at an odd angle on your avatar type, change the angle there.

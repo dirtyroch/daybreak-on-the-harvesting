@@ -181,7 +181,7 @@ function Results.mount(parent: Frame)
 		Fx.toast(string.format("Next match in %ds. %d queued.", d.seconds, d.queued), "info")
 	end)
 	Net.on("knocked", function(d)
-		Sfx.play("crunch")
+		-- The shared knockout chime already plays from the feed. A second sting here stacks.
 		Fx.pop(string.format("Knocked out %s! %d left", d.name, d.left), T.gold, 30)
 	end)
 	Net.on("feed", function(d)

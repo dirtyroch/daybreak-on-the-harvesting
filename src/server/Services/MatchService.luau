@@ -720,7 +720,7 @@ function MatchService.attack(c: Contender, wid: string, aim: Vector3?): boolean
 		params.FilterDescendantsInstances = { c.model :: any, map().Arena.Veil }
 		local hit = workspace:Raycast(origin, dir, params)
 		local to = hit and hit.Position or (origin + dir)
-		pushMatch("tracer", { from = origin, to = to, color = skinColor(c, "bow"), bright = select(2, looksOf(c, "bow")) >= 2 })
+		pushMatch("tracer", { from = origin, to = to, color = skinColor(c, "bow"), bright = select(2, looksOf(c, "bow")) >= 2, by = c.player and c.player.UserId or 0 })
 		if hit then
 			local m = hit.Instance:FindFirstAncestorOfClass("Model")
 			while m and not byModel[m] do
@@ -761,7 +761,7 @@ function MatchService.attack(c: Contender, wid: string, aim: Vector3?): boolean
 			end
 		end
 	end
-	pushMatch("swing", { id = c.id, weapon = wid })
+	pushMatch("swing", { id = c.id, weapon = wid, at = root.Position, by = c.player and c.player.UserId or 0 })
 	if best then
 		MatchService.damage(best, math.floor(w.damage * mult + 0.5), c, wid, math.floor(bestD))
 	end
@@ -928,7 +928,7 @@ function MatchService.throw(c: Contender, aim: Vector3?): boolean
 		local b = Vector3.new(leg.to.x, origin.Y, leg.to.z)
 		local hit = workspace:Raycast(a, b - a, params)
 		local stop = hit and hit.Position or b
-		pushMatch("tracer", { from = a, to = stop, spear = true, color = skinColor(c, "spear"), bright = select(2, looksOf(c, "spear")) >= 2 })
+		pushMatch("tracer", { from = a, to = stop, spear = true, color = skinColor(c, "spear"), bright = select(2, looksOf(c, "spear")) >= 2, by = c.player and c.player.UserId or 0 })
 		-- Veil Breaker: only a rebounded spear counts
 		local core = veilCore
 		if leg.bounced and core and Throw.segDist(leg.from, { x = stop.X, z = stop.Z }, { x = core.Position.X, z = core.Position.Z }) <= Config.VeilBreaker.coreSize * 0.6 then
@@ -1005,6 +1005,7 @@ function MatchService.openCrate(c: Contender, crate: BasePart): boolean
 		end
 		ctx.push(c.player, "loot", { item = item, name = itemName(item) })
 	end
+	pushMatch("crate", { at = crate.Position })
 	return true
 end
 

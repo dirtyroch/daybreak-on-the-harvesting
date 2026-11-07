@@ -14,6 +14,11 @@ local panels: any = nil
 local lastTier: number? = nil
 local premiumNoted = false
 Hud.note = function(_text: string) end -- set by Main (Fx.toast)
+Hud.onViewToggle = function() end
+Hud.viewText = function(): string
+	local s = Net.state
+	return (s and s.settings and s.settings.view == "first") and "View: 1st" or "View: 3rd"
+end
 function Hud.openPanel(id: string)
 	if panels then
 		panels.open(id)
@@ -164,6 +169,21 @@ local function arenaHud(parent: Frame)
 
 	-- Veil compass: tells you which way is safe when you're near the edge.
 	refs.edge = UI.label("", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 72), Size = UDim2.new(0, 520, 0, 26), TextSize = 20, TextColor3 = T.veil, TextXAlignment = Enum.TextXAlignment.Center, TextStrokeTransparency = 0.4, Parent = parent })
+
+	-- Large enough for a thumb. Sits on the right, clear of the hotbar.
+	refs.viewBtn = UI.button("View: 3rd", T.card, {
+		Name = "ViewToggle",
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -14, 1, -96),
+		Size = UDim2.fromOffset(132, 44),
+		TextSize = 16,
+		TextColor3 = T.text,
+		Visible = false,
+		ZIndex = 4,
+		Parent = parent,
+	}, function()
+		Hud.onViewToggle()
+	end)
 end
 
 function Hud.mount(parent: Frame, p: any)
@@ -243,6 +263,8 @@ function Hud.update()
 	refs.menu.Visible = Hud.mode == "lobby"
 	refs.lobbyCard.Visible = Hud.mode == "lobby"
 	refs.edge.Visible = inArena
+	refs.viewBtn.Visible = inArena
+	refs.viewBtn.Text = Hud.viewText()
 	local pa = Hud.pact
 	refs.pact.Visible = inArena and not (pa and pa.ended)
 	if inArena then

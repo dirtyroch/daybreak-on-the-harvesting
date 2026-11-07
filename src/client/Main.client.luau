@@ -21,6 +21,8 @@ local Results = require(script.Parent.Results)
 local AnimPlayer = require(script.Parent.AnimPlayer)
 local OfferCard = require(script.Parent.OfferCard)
 local V5 = require(script.Parent.V5)
+local WorldAudio = require(script.Parent.WorldAudio)
+local FirstPerson = require(script.Parent.FirstPerson)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Names = require(Shared.Names)
@@ -45,6 +47,14 @@ workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale
 Sfx.mount()
 UI.onClick = function()
 	Sfx.play("click", nil, 0.05)
+end
+WorldAudio.start()
+FirstPerson.start(playerGui)
+Hud.onViewToggle = function()
+	FirstPerson.toggle()
+end
+Hud.viewText = function()
+	return if FirstPerson.view() == "first" then "View: 1st" else "View: 3rd"
 end
 Fx.mount(root)
 Panels.mount(root)
@@ -88,8 +98,11 @@ Net.on("hitmark", function(d)
 	Fx.pop("-" .. tostring(math.floor(d.amount)), UI.Theme.gold, 22)
 end)
 Net.on("pep", function(d)
-	if d.from ~= "snack" and d.from ~= "gift" then
+	if d.from == "snack" then
+		Sfx.play("crunch")
+	elseif d.from ~= "gift" then
 		Fx.hit()
+		Sfx.play("hurt")
 	end
 end)
 Net.on("loot", function(d)
@@ -220,11 +233,17 @@ UserInputService.InputBegan:Connect(function(input: InputObject, processed: bool
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		if arena() and not Panels.isOpen() then
 			local mouse = player:GetMouse()
+			FirstPerson.pulse()
 			Net.act("use", mouse.Hit.Position)
 		end
 	elseif input.UserInputType == Enum.UserInputType.MouseButton2 or input.KeyCode == Enum.KeyCode.Q then
 		if arena() and not Panels.isOpen() then
+			FirstPerson.pulse()
 			Net.act("throw", player:GetMouse().Hit.Position)
+		end
+	elseif input.KeyCode == Enum.KeyCode.V or input.KeyCode == Enum.KeyCode.ButtonR3 then
+		if not Cutscene.playing then
+			FirstPerson.toggle()
 		end
 	elseif input.KeyCode == Enum.KeyCode.LeftShift then
 		setSprint(true)
@@ -267,11 +286,9 @@ task.spawn(function()
 		local ok, err = pcall(function(): any
 			Hud.update()
 			if Net.state and Net.state.settings then
-				local want = Net.state.settings.sfx ~= false
-				if want ~= Sfx.isEnabled() then
-					Sfx.setEnabled(want)
-				end
+				Sfx.apply(Net.state.settings)
 			end
+			WorldAudio.update()
 			return nil
 		end)
 		if not ok then

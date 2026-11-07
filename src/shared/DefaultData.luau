@@ -40,7 +40,17 @@ function DefaultData.new(): any
 		seenReaping = false,
 		boost = { untilT = 0, mult = 0 },
 		receipts = {},
-		settings = { autoQueue = true, sfx = true, shortReaping = false, mode = "" }, -- mode: "" = auto (Modes.preferred)
+		settings = {
+			autoQueue = true,
+			sfx = true, -- master mute; false silences every bus
+			shortReaping = false,
+			mode = "", -- "" = auto (Modes.preferred)
+			view = "third", -- "third" | "first"; presentation only, never read by combat
+			reduceMotion = false,
+			fov = 70, -- 60, 65 or 70. Never wider than third person.
+			volumes = { master = 80, effects = 85, ambience = 40, voice = 70, ui = 55 }, -- 0–100
+			muted = { effects = false, ambience = false, voice = false, ui = false },
+		},
 		quip = 1,
 		letters = { lastDay = -1, waiting = 0, claimed = 0 }, -- sponsor letters
 		favorBank = 0, -- Favor head start from letters, spent on the next Gallery visit

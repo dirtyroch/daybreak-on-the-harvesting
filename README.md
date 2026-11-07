@@ -96,6 +96,18 @@ Old saves get the new `skipped` / `reopened` / `rewarded` flags from Reconcile. 
 
 Still fair: nothing random for Robux, no timers or pressure copy (tested), festival items return every year, boosts never in ranked matches or finals. The old raised-hand pose is now "Hand on Heart" and its Season emote is "Nod".
 
+## What's in this pass: sounds and an optional first-person view
+
+| Area | Status |
+|---|---|
+| Distinct weapon, hit, knockout, footstep, pickup, interaction, arena bed and Veil warning cues | **Playable in Studio** with verified Roblox client sounds. Original files in `audio/original/` are quieter and more distinct, and play only after you upload them and paste the id (every `uploadId` ships as 0) |
+| Saved mixer: master, effects, ambience, voice, menu. Per-bus mute. Old "sound effects" off still silences everything | **Playable in Studio** |
+| No stacked knockout sting, footstep gap floor, Veil pulses at least a second apart, a cap on other people's spatial sounds | **Playable in Studio** |
+| Optional first person during a match: hands, your weapon skin, a small center mark, head and head-worn accessories hidden locally | **Playable in Studio**. Third person stays the default. Field of view is 60, 65 or 70, never wider. The world camera is not bobbed |
+| Server hits unchanged. The client still sends the mouse point; the server still shoots from the character | **Unchanged** |
+
+Switch view with **V**, the **View** button, or a right-stick click. Reduce motion is in Settings and also follows the device when Roblox exposes it. Previews: `marketing/fp-view-preview.png` (a diagram, not Studio) and `marketing/fp-studio-not-captured.png`. The original mix sample is `audio/samples/daybreak-original-mix.wav`.
+
 ## Project layout
 
 ```

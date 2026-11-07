@@ -12,6 +12,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared.Names)
 local Content = require(Shared.Content)
 local Shop = require(Shared.Store)
+local Settings = require(Shared.Logic.Settings)
 local Mastery = require(Shared.Mastery)
 local TryOn = require(script.Parent.TryOn)
 local SocialService = game:GetService("SocialService")
@@ -637,24 +638,24 @@ end
 builders.settings = function(s: any)
 	title.Text = "⚙️ Settings"
 	local opts = {
-		{ key = "autoQueue", text = "Auto-queue the next match" },
-		{ key = "shortReaping", text = "Short " .. Names.DRAW .. " cutscene" },
-		{ key = "sfx", text = "Sound effects" },
+		{ key = "autoQueue", text = "Auto-queue the next match", invert = false },
+		{ key = "shortReaping", text = "Short " .. Names.DRAW .. " cutscene", invert = true },
+		{ key = "sfx", text = "Master sound", invert = false },
+		{ key = "reduceMotion", text = "Reduce motion", invert = true },
 	}
 	for i, o in ipairs(opts) do
-		local on = s.settings[o.key] ~= false
-		if o.key == "shortReaping" then
-			on = s.settings.shortReaping == true
-		end
+		local on = if o.invert then s.settings[o.key] == true else s.settings[o.key] ~= false
 		local f = row(48, i)
 		UI.label(o.text, { Size = UDim2.new(1, -110, 1, 0), TextSize = 17, Font = T.body, Parent = f })
 		UI.button(on and "ON" or "OFF", on and T.green or T.card, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 90, 0, 34), TextColor3 = T.text, Parent = f }, function()
 			Net.act("setting", o.key, not on)
 		end)
 	end
+	local order = #opts
 	-- v5: match type. Auto = Quick Trials for your first 2 matches, then the full Jubilee.
 	local modes = { { id = "", text = "Auto" }, { id = "quick", text = "Quick" }, { id = "jubilee", text = "Full" } }
-	local f = row(48, #opts + 1)
+	order += 1
+	local f = row(48, order)
 	UI.label("Match type (Quick Trials ≈ 5 min)", { Size = UDim2.new(1, -300, 1, 0), TextSize = 17, Font = T.body, Parent = f })
 	local box = UI.frame({ BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 290, 0, 34), Parent = f })
 	UI.list(box, Enum.FillDirection.Horizontal, 6, Enum.HorizontalAlignment.Right)
@@ -664,10 +665,66 @@ builders.settings = function(s: any)
 			Net.act("setMode", m.id)
 		end)
 	end
+	order += 1
+	local view = s.settings.view == "first"
+	local vf = row(48, order)
+	UI.label("View in a match", { Size = UDim2.new(1, -300, 1, 0), TextSize = 17, Font = T.body, Parent = vf })
+	local vbox = UI.frame({ BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 280, 0, 34), Parent = vf })
+	UI.list(vbox, Enum.FillDirection.Horizontal, 6, Enum.HorizontalAlignment.Right)
+	UI.button("Third", not view and T.gold or T.card, { LayoutOrder = 1, Size = UDim2.new(0, 130, 0, 34), TextColor3 = not view and T.dark or T.text, Parent = vbox }, function()
+		Net.act("setting", "viewFirst", false)
+	end)
+	UI.button("First", view and T.gold or T.card, { LayoutOrder = 2, Size = UDim2.new(0, 130, 0, 34), TextColor3 = view and T.dark or T.text, Parent = vbox }, function()
+		Net.act("setting", "viewFirst", true)
+	end)
+	order += 1
+	local fov = s.settings.fov or 70
+	local ff = row(48, order)
+	UI.label("Field of view (70 is the widest)", { Size = UDim2.new(1, -300, 1, 0), TextSize = 17, Font = T.body, Parent = ff })
+	local fbox = UI.frame({ BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 280, 0, 34), Parent = ff })
+	UI.list(fbox, Enum.FillDirection.Horizontal, 6, Enum.HorizontalAlignment.Right)
+	for i, n in ipairs({ 60, 65, 70 }) do
+		UI.button(tostring(n), fov == n and T.gold or T.card, { LayoutOrder = i, Size = UDim2.new(0, 84, 0, 34), TextColor3 = fov == n and T.dark or T.text, Parent = fbox }, function()
+			Net.act("setFov", n)
+		end)
+	end
+	local volumes = s.settings.volumes or {}
+	local muted = s.settings.muted or {}
+	for _, rowDef in ipairs(Settings.VOLUME_ROWS) do
+		order += 1
+		local level = volumes[rowDef.bus] or 0
+		local muteKey = nil
+		for key, bus in pairs(Settings.MUTE_OF) do
+			if bus == rowDef.bus then
+				muteKey = key
+			end
+		end
+		local isMuted = muteKey ~= nil and muted[rowDef.bus] == true
+		local rf = row(48, order)
+		UI.label(string.format("%s  %d", rowDef.label, level), { Size = UDim2.new(1, -250, 1, 0), TextSize = 16, Font = T.body, Parent = rf })
+		local controls = UI.frame({ BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 240, 0, 34), Parent = rf })
+		UI.list(controls, Enum.FillDirection.Horizontal, 6, Enum.HorizontalAlignment.Right)
+		UI.button("−", T.card, { LayoutOrder = 1, Size = UDim2.new(0, 44, 0, 34), TextColor3 = T.text, Parent = controls }, function()
+			Net.act("setVolume", rowDef.bus, level - 10)
+		end)
+		UI.button("+", T.card, { LayoutOrder = 2, Size = UDim2.new(0, 44, 0, 34), TextColor3 = T.text, Parent = controls }, function()
+			Net.act("setVolume", rowDef.bus, level + 10)
+		end)
+		if muteKey then
+			UI.button(isMuted and "Muted" or "On", isMuted and T.card or T.green, { LayoutOrder = 3, Size = UDim2.new(0, 90, 0, 34), TextColor3 = T.text, Parent = controls }, function()
+				Net.act("setting", muteKey, not isMuted)
+			end)
+		end
+	end
+	order += 1
+	note("First person shows your hands and weapon during a match. Shots still come from your character, the same as third person. V, the View button, or a right-stick click switches it. Reduce motion turns off the small sway.", order)
+	order += 1
+	note("Weapon, hit, step, pickup and Veil sounds are quiet by default. Original recordings are ready to upload; until then you hear short sounds that ship with Roblox. Master sound off silences every bus.", order)
 	-- v6: Rusty's checklist. Skipped (or timed out) players can bring it back and still earn the reward.
 	local cl = s.checklist
 	if cl then
-		local r = row(48, #opts + 2)
+		order += 1
+		local r = row(48, order)
 		local status = if cl.finished then ("Rusty's checklist: done. " .. cl.rewardName .. " unlocked")
 			elseif cl.canReopen then ("Rusty's checklist (finish it for the " .. cl.rewardName .. " title)")
 			else "Rusty's checklist: showing in the top-left"

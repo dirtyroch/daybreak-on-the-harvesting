@@ -11,6 +11,7 @@ local Debris = game:GetService("Debris")
 
 local Net = require(script.Parent.Net)
 local Fx = require(script.Parent.Fx)
+local Sfx = require(script.Parent.Sfx)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Content = require(Shared.Content)
 
@@ -22,8 +23,7 @@ local function pack(): string?
 end
 
 local function soundOn(): boolean
-	local s = Net.state
-	return not (s and s.settings and s.settings.sfx == false)
+	return Sfx.audible("voice")
 end
 
 local function rustyHead(): BasePart?
@@ -44,22 +44,28 @@ function Rusty.voice(line: string, p: string?)
 		return
 	end
 	local v = Content.rustyVoice(p)
+	local group = Sfx.group("voice")
 	if v.sound ~= 0 then
 		local s = Instance.new("Sound")
 		s.SoundId = "rbxassetid://" .. v.sound
-		s.Volume = 0.8
-		s.Parent = SoundService
+		s.Volume = 0.55
+		s.SoundGroup = group
+		s.Parent = group or SoundService
 		s:Play()
 		Debris:AddItem(s, 12)
 		return
 	end
 	for _, b in ipairs(Content.babble(line, p)) do
 		task.delay(b.t, function()
+			if not Sfx.audible("voice") then
+				return
+			end
 			local s = Instance.new("Sound")
 			s.SoundId = Content.RUSTY_BABBLE
 			s.PlaybackSpeed = b.pitch
 			s.Volume = 0.22
-			s.Parent = SoundService
+			s.SoundGroup = group
+			s.Parent = group or SoundService
 			s:Play()
 			Debris:AddItem(s, 1)
 		end)

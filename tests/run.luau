@@ -52,6 +52,9 @@ local Comeback = require("../src/shared/Logic/Comeback")
 local Events = require("../src/shared/Logic/Events")
 local Moments = require("../src/shared/Logic/Moments")
 local Funnel = require("../src/shared/Logic/Funnel")
+local AudioMix = require("../src/shared/Logic/AudioMix")
+local Presentation = require("../src/shared/Logic/Presentation")
+local Settings = require("../src/shared/Logic/Settings")
 local roblox = require("@lune/roblox")
 
 local passed, failed = 0, 0
@@ -563,9 +566,8 @@ test("content tables are sane", function()
 	eq(#Content.TOKENS, 24)
 	eq(#Content.BOT_NAMES >= Config.MATCH_SIZE, true)
 	truthy(Content.FADES.fade_gold)
-	for name, def in pairs(SfxIds) do
-		truthy(type(def.id) == "number" and def.id > 0, name)
-	end
+	truthy(SfxIds.get("bell") ~= nil)
+	eq(SfxIds.get("bell").uploadId, 0)
 end)
 
 -- ===== v2: pacts =====
@@ -1231,7 +1233,7 @@ test("v5 onboarding: five steps, any order, softer bots for 3 matches, hides aft
 	eq(Onboarding.current(s, 0), nil)
 	eq(Onboarding.current(Onboarding.new(), 5), nil)
 	truthy(Onboarding.botDamageMult(0) < 1 and Onboarding.botDamageMult(3) == 1)
-	for i, st in ipairs(Onboarding.STEPS) do
+	for _, st in ipairs(Onboarding.STEPS) do
 		truthy(Funnel.step(Funnel.ONBOARDING_STEPS, st.event) ~= nil, st.event .. " is a funnel step")
 		truthy(#st.tip > 10)
 	end
@@ -1469,6 +1471,161 @@ test("v5 shop funnel and festival shelf: event items stay off the regular shelve
 			eq(it.rot, false)
 		end
 	end
+end)
+
+-- ===== audio + optional first person =====
+print("Audio mix + first person")
+test("every cue is a verified client sound or an upload slot at 0", function()
+	local seen = {}
+	for name, cue in pairs(SfxIds.cues) do
+		local id, status = AudioMix.resolve(cue)
+		eq(status, "working_builtin", name)
+		eq(id, cue.builtin, name)
+		truthy(AudioMix.VERIFIED[cue.builtin] == true, name)
+		eq(cue.uploadId, 0, name)
+		truthy(fs.isFile(cue.uploadFile), cue.uploadFile)
+		truthy(cue.volume <= AudioMix.MAX_CUE_VOLUME, name .. " volume")
+		truthy(cue.minGap >= 0, name)
+		seen[name] = true
+	end
+	local canon = { "weapon_bow", "weapon_knife", "weapon_spear", "weapon_shove", "weapon_throw", "swat", "bell", "footstep", "pop", "interact", "ambience", "veil_near" }
+	local files = {}
+	for _, name in ipairs(canon) do
+		truthy(seen[name], "missing " .. name)
+		local file = SfxIds.cues[name].uploadFile
+		truthy(files[file] == nil, "shared original " .. file)
+		files[file] = name
+	end
+	truthy(SfxIds.cues.footstep.minGap >= AudioMix.FOOT_MIN_GAP)
+	truthy(SfxIds.cues.bell.minGap >= 0.4)
+	truthy(SfxIds.cues.veil_far.minGap >= 1 and SfxIds.cues.veil_near.minGap >= 1 and SfxIds.cues.veil_out.minGap >= 1)
+	truthy(SfxIds.cues.ambience.loop == true and SfxIds.cues.ambience.volume <= 0.4)
+	truthy(fs.isFile("audio/samples/daybreak-original-mix.wav"))
+end)
+test("retired catalog ids are not played", function()
+	local retired = {}
+	for _, row in ipairs(SfxIds.retired) do
+		eq(row.note, "needs_permission")
+		retired[tostring(row.id)] = true
+	end
+	for name, cue in pairs(SfxIds.cues) do
+		truthy(retired[tostring(cue.uploadId)] == nil, name)
+		truthy(not tostring(cue.builtin):find("rbxassetid://", 1, true), name)
+	end
+	local src = fs.readFile("src/client/Sfx.luau")
+	truthy(not src:find("15675059323", 1, true))
+	truthy(not src:find("9113584163", 1, true))
+	local bumped = table.clone(SfxIds.cues.bell)
+	bumped.uploadId = 42
+	local id, status = AudioMix.resolve(bumped)
+	eq(status, "uploaded")
+	eq(id, "rbxassetid://42")
+end)
+test("mixer: separate buses, mute, and gaps that only get longer", function()
+	local s = DefaultData.new().settings
+	near(AudioMix.gain(s, "effects"), 0.8 * 0.85)
+	near(AudioMix.gain(s, "ambience"), 0.8 * 0.4)
+	s.muted.effects = true
+	eq(AudioMix.gain(s, "effects"), 0)
+	near(AudioMix.gain(s, "voice"), 0.8 * 0.7)
+	s.sfx = false
+	eq(AudioMix.gain(s, "voice"), 0)
+	eq(AudioMix.gain(s, "master"), 0)
+	eq(AudioMix.gap({ minGap = 0.4 }, 0.05), 0.4)
+	eq(AudioMix.gap({ minGap = 0.4 }, 1.2), 1.2)
+	eq(AudioMix.speed({ pitch = 1 }, 4), 1.45)
+	eq(AudioMix.veilCue(100), nil)
+	eq(AudioMix.veilCue(50), "veil_far")
+	eq(AudioMix.veilCue(10), "veil_near")
+	eq(AudioMix.veilCue(-4), "veil_out")
+	eq(AudioMix.footstepInterval(0), nil)
+	truthy((AudioMix.footstepInterval(16) :: number) >= 0.28)
+	eq(AudioMix.footstepInterval(40), 0.28)
+	truthy(AudioMix.admit(AudioMix.SPATIAL_CAP, false) == false)
+	truthy(AudioMix.admit(AudioMix.SPATIAL_CAP, true))
+	truthy(not AudioMix.inRange(80, 64))
+end)
+test("settings round-trip keeps old flags and rejects combat keys", function()
+	local old = { settings = { autoQueue = false, sfx = false } }
+	local d = Reconcile.fill(old, DefaultData.new())
+	eq(d.settings.autoQueue, false)
+	eq(d.settings.sfx, false)
+	eq(d.settings.view, "third")
+	eq(d.settings.fov, 70)
+	eq(d.settings.volumes.master, 80)
+	eq(d.onboarding.rewarded, false)
+	local s = d.settings
+	truthy(not Settings.applyBool(s, "damage", true))
+	truthy(not Settings.applyBool(s, "viewFirst", "first"))
+	truthy(Settings.applyBool(s, "viewFirst", true))
+	eq(s.view, "first")
+	truthy(Settings.applyBool(s, "viewFirst", false))
+	eq(s.view, "third")
+	truthy(Settings.applyBool(s, "muteAmbience", true))
+	eq(s.muted.ambience, true)
+	truthy(not Settings.setVolume(s, "damage", 10))
+	truthy(Settings.setVolume(s, "effects", 1000))
+	eq(s.volumes.effects, 100)
+	truthy(not Settings.setVolume(s, "effects", 0 / 0))
+	for bus in pairs(AudioMix.BUSES) do
+		truthy(Settings.BUSES[bus] == true, bus)
+	end
+	for bus in pairs(Settings.BUSES) do
+		truthy(AudioMix.BUSES[bus] == true, bus)
+	end
+	truthy(Settings.setFov(s, 110))
+	eq(s.fov, 70)
+	truthy(Settings.setFov(s, 61))
+	eq(s.fov, 60)
+	eq(Presentation.clampFov(90), 70)
+	eq(Presentation.FOV_MAX, 70)
+end)
+test("first person is visual only: same aim send, no wider view, no camera bob", function()
+	eq(Presentation.viewOf({}), "third")
+	eq(Presentation.viewOf({ view = "first" }), "first")
+	truthy(not Presentation.shouldForceFirst("first", "lobby", false, false, false))
+	truthy(not Presentation.shouldForceFirst("third", "arena", false, false, false))
+	truthy(not Presentation.shouldForceFirst("first", "arena", true, false, false))
+	truthy(not Presentation.shouldForceFirst("first", "arena", false, true, false))
+	truthy(Presentation.shouldForceFirst("first", "arena", false, false, false))
+	for _, slot in ipairs({ "bow", "spear", "knife", "hands" }) do
+		truthy(Presentation.aimClear(slot), slot)
+	end
+	truthy(Presentation.armsClear())
+	local x, y, z = Presentation.bob(16, 0.4, true)
+	eq(x, 0)
+	eq(y, 0)
+	eq(z, 0)
+	local sx, sy, sz = Presentation.swing("knife", 0.05, false)
+	truthy(math.abs(sx) <= 0.2 and math.abs(sy) <= 0.2 and math.abs(sz) <= 0.2)
+	local touch = Presentation.reticle(true)
+	local desk = Presentation.reticle(false)
+	truthy(touch.ring > desk.ring and touch.ring <= 28)
+	truthy(Presentation.localHide("Head", { head = true, held = false, accessory = nil }))
+	truthy(Presentation.localHide("Handle", { head = false, held = false, accessory = "HatAttachment" }))
+	truthy(Presentation.localHide("Handle", { head = false, held = false, accessory = "" }))
+	truthy(not Presentation.localHide("Handle", { head = false, held = false, accessory = "BodyBackAttachment" }))
+	truthy(Presentation.localHide("RightHand", { head = false, held = false, accessory = nil }))
+	truthy(not Presentation.localHide("UpperTorso", { head = false, held = false, accessory = nil }))
+	truthy(Presentation.localHide("Grip", { head = false, held = true, accessory = nil }))
+	local attack = fs.readFile("src/server/Services/MatchService.luau"):gsub("\n", " ")
+	local body = attack:match("function MatchService.attack.-function MatchService.eat")
+	truthy(body ~= nil)
+	truthy(body:find("root.Position + Vector3.new(0, 1.6, 0)", 1, true) ~= nil)
+	truthy(not body:find("view"))
+	truthy(not body:find("fov"))
+	truthy(not body:find("FirstPerson"))
+	local main = fs.readFile("src/client/Main.client.luau")
+	truthy(main:find('Net.act("use", mouse.Hit.Position)', 1, true) ~= nil)
+	truthy(main:find('Net.act("throw", player:GetMouse().Hit.Position)', 1, true) ~= nil)
+	local fp = fs.readFile("src/client/FirstPerson.luau")
+	truthy(not fp:find("Raycast"))
+	truthy(not fp:find("AimAssist"))
+	truthy(not fp:find("cam.CFrame ="))
+	truthy(not fp:find("camera.CFrame ="))
+	truthy(fp:find("CanQuery = false", 1, true) ~= nil)
+	truthy(fp:find("LockFirstPerson", 1, true) ~= nil)
+	truthy(not fs.readFile("src/server/Services/MatchService.luau"):find("Presentation"))
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

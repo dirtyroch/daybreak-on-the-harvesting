@@ -164,6 +164,19 @@ local function arenaHud(parent: Frame)
 
 	-- Veil compass: tells you which way is safe when you're near the edge.
 	refs.edge = UI.label("", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 72), Size = UDim2.new(0, 520, 0, 26), TextSize = 20, TextColor3 = T.veil, TextXAlignment = Enum.TextXAlignment.Center, TextStrokeTransparency = 0.4, Parent = parent })
+
+	refs.viewBtn = UI.button("View: 3rd", T.card, {
+		Name = "ViewToggle",
+		Position = UDim2.new(0, 14, 0, 72),
+		Size = UDim2.new(0, 124, 0, 32),
+		TextSize = 14,
+		TextColor3 = T.text,
+		Visible = false,
+		Parent = parent,
+	}, function()
+		local s = Net.state and Net.state.settings
+		Net.act("setting", "viewFirst", not (s and s.viewFirst == true))
+	end)
 end
 
 function Hud.mount(parent: Frame, p: any)
@@ -212,6 +225,9 @@ function Hud.update()
 		refs.streak.Text = string.format("🔥 %d-day streak", s.streak)
 		refs.play.Text = s.play > 0 and string.format("Match streak ×%.1f %s", s.playMult, Names.XP) or "Play again soon for a streak bonus"
 		refs.autoBtn.Text = (s.settings and s.settings.autoQueue) and "Auto: ON" or "Auto: OFF"
+		local first = s.settings and s.settings.viewFirst == true
+		refs.viewBtn.Text = first and "View: 1st" or "View: 3rd"
+		refs.viewBtn.Visible = true
 		local openChallenges = 0
 		for _, c in ipairs(s.daily) do
 			if not c.done then

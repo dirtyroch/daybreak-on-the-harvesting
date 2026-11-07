@@ -1,6 +1,13 @@
 --!strict
 -- The save file for a new contender. Reconcile fills any missing keys on load, so adding a field
 -- here is always safe. Bump VERSION only for migrations.
+local Prefs
+if script then
+	Prefs = require(script.Parent.Prefs)
+else
+	Prefs = (require :: any)("./Prefs")
+end
+
 local DefaultData = {}
 
 DefaultData.VERSION = 1
@@ -40,7 +47,7 @@ function DefaultData.new(): any
 		seenReaping = false,
 		boost = { untilT = 0, mult = 0 },
 		receipts = {},
-		settings = { autoQueue = true, sfx = true, shortReaping = false, mode = "" }, -- mode: "" = auto (Modes.preferred)
+		settings = Prefs.defaultSettings(), -- mode: "" = auto (Modes.preferred). viewFirst stays false.
 		quip = 1,
 		letters = { lastDay = -1, waiting = 0, claimed = 0 }, -- sponsor letters
 		favorBank = 0, -- Favor head start from letters, spent on the next Gallery visit

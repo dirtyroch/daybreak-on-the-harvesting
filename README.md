@@ -67,6 +67,18 @@ Fair-play rules for v3 are in tests: nothing random, no pressure words, every pa
 
 Still fair: nothing random for Robux, no timers or pressure copy (tested), every card hidden when policy hides paid items, boosts casual-only.
 
+## What's in the audio and first-person pass
+
+| Area | Status |
+|---|---|
+| Separate saved volume sliders (weapons, hits, footsteps, pickups, interface, ambient, Veil, voices) plus the master sound switch | **Playable in Studio** |
+| Distinct cues for bow, spear, knife, shove, hits, knockouts, footsteps by surface, pickups, Veil warnings | **Playable** as Roblox engine or library stand-ins. Original samples are in `audio/samples/` and stay silent stand-ins until you paste an upload id |
+| Looping arena and lobby beds | **Placeholder.** Silent until those two files are uploaded (`ambientArena`, `ambientLobby` in `src/shared/SfxIds.luau`) |
+| Optional first person (default stays third person): local hands and held weapon, small center mark, head and hats hidden on your screen, FOV 70 (72 while sprinting unless reduced motion is on) | **Playable in Studio.** Shots still use the shoulder aim line, so the eye camera does not change hit detection |
+| Touch **Use** / **Throw** while in first person, and controller **R2** / **L2** | **Playable in Studio** |
+
+Diagram (not a Studio capture): `marketing/preview-first-person.png`. Hear the original set in `audio/daybreak-mix-preview.wav`. Studio steps are in PUBLISHING sections 6l and 6m. Checklist skip, reopen, Rusty's Pick, 48 contenders and the title are unchanged.
+
 ## What's in v6: a skippable checklist with a stated reward
 
 | Area | Status |

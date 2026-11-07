@@ -38,6 +38,7 @@ local Comeback = require(Shared.Logic.Comeback)
 local Events = require(Shared.Logic.Events)
 local Funnel = require(Shared.Logic.Funnel)
 local Moments = require(Shared.Logic.Moments)
+local Prefs = require(Shared.Prefs)
 local AnalyticsService = game:GetService("AnalyticsService")
 Store.addReachPride(Names.REACH_LIST)
 
@@ -904,13 +905,14 @@ end
 
 local function setting(player: Player, key: any, value: any): (boolean, string?)
 	local data = ProgressService.dataOf(player)
-	if not data or type(key) ~= "string" or type(value) ~= "boolean" then
+	if not data then
 		return false, nil
 	end
-	if key ~= "autoQueue" and key ~= "sfx" and key ~= "shortReaping" then
+	local ok, clean = Prefs.sanitize(key, value)
+	if not ok then
 		return false, nil
 	end
-	data.settings[key] = value
+	data.settings[key] = clean
 	ProgressService.markDirty(player)
 	ProgressService.sendState(player)
 	return true, nil

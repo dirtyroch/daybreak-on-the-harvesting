@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Fx = require(script.Parent.Fx)
 local AnimPlayer = require(script.Parent.AnimPlayer)
+local View = require(script.Parent.View)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Arms = require(Shared.Arms) :: any
 local Anim = require(Shared.Anim)
@@ -34,6 +35,7 @@ local E = {
 
 local double: Model? = nil
 local token = 0
+local heldCam = false
 
 function TryOn.stop()
 	token += 1
@@ -45,6 +47,10 @@ function TryOn.stop()
 	local cam = workspace.CurrentCamera
 	if cam then
 		cam.CameraType = Enum.CameraType.Custom
+	end
+	if heldCam then
+		heldCam = false
+		View.release()
 	end
 end
 
@@ -85,6 +91,10 @@ local function focus(m: Model, seconds: number)
 	local root = m:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not cam or not root then
 		return
+	end
+	if not heldCam then
+		heldCam = true
+		View.hold()
 	end
 	cam.CameraType = Enum.CameraType.Scriptable
 	local at = root.Position

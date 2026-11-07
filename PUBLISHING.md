@@ -194,6 +194,51 @@ Members (`player.HasRobloxSubscription`, falling back to `MembershipType == Prem
 - **Hall of Champions DataStores:** `HallWins_<week>` (OrderedDataStore) and `HallLoadout` (DataStore). Turn on API services (step 5).
 - **Invites:** `SocialService:PromptGameInvite` only works in a published game; the join's `LaunchData` "ref:<userId>" gives both players the Torchbearer Sash (capped at 20 a week).
 
+### 6l. Sounds and first person
+
+Nothing here publishes the game or changes dashboard settings. Open the new `.rbxlx`, press Play, and listen.
+
+**What plays today**
+
+| Kind | How you can tell | What you do |
+|---|---|---|
+| Playable stand-in | `SfxIds` cue has an `engine` path (`rbxasset://sounds/...`, Roblox's own short effects) or a `libraryId` from the twelve ids already in this project | Nothing. It already plays. |
+| Original sample | `sample` file under `audio/samples/`. `uploadId` is 0 | Optional. Upload the wav, then paste the new id into that cue's `uploadId`. When `uploadId` is above 0, the game plays your file instead of the stand-in. |
+| Silent placeholder | `ambientArena` and `ambientLobby` have no engine path and no library id | These two loops stay quiet until you upload `audio/samples/ambient-arena.wav` and `ambient-lobby.wav` and paste the ids. Sparse air ticks still play. |
+
+`audio/daybreak-mix-preview.wav` is a short sequence of the original samples (bow, spear, knife, hit, knockout, grass, stone, water, pickup, Veil warning). `audio/SAMPLES.txt` lists every file. Regenerate with `python3 scripts/synth-audio.py`. These are synthesized for this game. Do not drop in music or anyone else's recordings.
+
+Settings saves each slider on its own (`volWeapons`, `volHits`, `volFootsteps`, `volPickups`, `volUi`, `volAmbient`, `volVeil`, `volVoice`) and the master **Sound effects** switch. Old saves pick up the new keys without wiping the ones you already set.
+
+**First person**
+
+- Default is third person. **View: 3rd** (top left) or **Settings > First person view**.
+- Your head, hair, hats and the rest of your body hide on your screen only. Other players still see you. Hands and the held weapon are a local model in front of the camera.
+- The center mark is a small gap with four ticks. It shows in a match, and hides while a menu or cutscene has the camera.
+- Field of view stays at 70, or 72 while sprinting. **Reduced motion** (Settings, or the device reduced-motion option) keeps it at 70 and turns off the step bob.
+- Shots do not use the eye position. The aim point is the look line through your head from 12.5 studs behind, and the server still casts from the chest. Third person still uses the mouse point, as before.
+- On a touch screen in first person, **Use** and **Throw** sit above the hotbar. A controller uses **R2** to use and **L2** to throw.
+- If a bow sits oddly in first person, the wrist angle is `handCf` in `src/client/View.luau`.
+
+Check in Studio: walk grass, stone and wood and confirm the steps differ and do not pile up; fire a bow, swing a spear and a knife; stand in the Veil and confirm the warning is a soft repeat, not a buzz; toggle first person and confirm a third-person friend still aims with the mouse; open Settings and confirm **Reopen** is still there for Rusty's checklist.
+
+### 6m. Keep asset ids you set in Studio
+
+This repo's ids for bodies, clothing, gamepasses, Rusty recordings and pose animations are still 0. If you pasted real ids into a place in Studio and those edits are not in git, a new `.rbxlx` will not contain them. Copy the numbers out of the old place before you overwrite it.
+
+1. In the **old** place, open each module below and copy the id numbers into a text file. Do not publish the new file yet.
+2. Open `DaybreakOnTheHarvesting.rbxlx` from this update.
+3. Paste the same numbers back into the same keys. Leave any new `uploadId` at 0 until you upload that sample.
+4. Save. Only then publish, when you are ready. This update does not publish the game and does not change dashboard settings.
+
+| Module in the place (ReplicatedStorage > Shared, unless noted) | Keys to copy |
+|---|---|
+| `Look` | `NPCS` body parts, `dynamicHead`, `hair`, `layered`, `accessories`, `idle`; `STAND_IN` pools; `MATERIALS` texture ids |
+| `Monetization` | Every pass, developer product and subscription id |
+| `Content` | `RUSTY_VOICE` → each pack's `sound` |
+| `Store` | Each pose and emote `anim` id |
+| `SfxIds` | `uploadId` only if you already uploaded a cue (new field; git ships 0) |
+
 ## 7. Maturity & Compliance questionnaire (prefilled answers)
 
 Dashboard > your game > **Publish settings > Content rating** (older: **Audience > Maturity & Compliance**). Answer every page based on the most intense thing a player can see. Honest answers for this build:

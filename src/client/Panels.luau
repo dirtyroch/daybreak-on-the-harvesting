@@ -12,6 +12,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared.Names)
 local Content = require(Shared.Content)
 local Shop = require(Shared.Store)
+local Prefs = require(Shared.Prefs)
 local Mastery = require(Shared.Mastery)
 local TryOn = require(script.Parent.TryOn)
 local SocialService = game:GetService("SocialService")
@@ -640,11 +641,13 @@ builders.settings = function(s: any)
 		{ key = "autoQueue", text = "Auto-queue the next match" },
 		{ key = "shortReaping", text = "Short " .. Names.DRAW .. " cutscene" },
 		{ key = "sfx", text = "Sound effects" },
+		{ key = "viewFirst", text = "First person view" },
+		{ key = "reduceMotion", text = "Reduced motion" },
 	}
 	for i, o in ipairs(opts) do
 		local on = s.settings[o.key] ~= false
-		if o.key == "shortReaping" then
-			on = s.settings.shortReaping == true
+		if o.key == "shortReaping" or o.key == "viewFirst" or o.key == "reduceMotion" then
+			on = s.settings[o.key] == true
 		end
 		local f = row(48, i)
 		UI.label(o.text, { Size = UDim2.new(1, -110, 1, 0), TextSize = 17, Font = T.body, Parent = f })
@@ -652,9 +655,10 @@ builders.settings = function(s: any)
 			Net.act("setting", o.key, not on)
 		end)
 	end
+	note("First person is a camera. Shots use the same shoulder aim as third person, so it is not more accurate. Your head, hair and hats hide on your screen only.", #opts + 1)
 	-- v5: match type. Auto = Quick Trials for your first 2 matches, then the full Jubilee.
 	local modes = { { id = "", text = "Auto" }, { id = "quick", text = "Quick" }, { id = "jubilee", text = "Full" } }
-	local f = row(48, #opts + 1)
+	local f = row(48, #opts + 2)
 	UI.label("Match type (Quick Trials ≈ 5 min)", { Size = UDim2.new(1, -300, 1, 0), TextSize = 17, Font = T.body, Parent = f })
 	local box = UI.frame({ BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 290, 0, 34), Parent = f })
 	UI.list(box, Enum.FillDirection.Horizontal, 6, Enum.HorizontalAlignment.Right)
@@ -664,10 +668,45 @@ builders.settings = function(s: any)
 			Net.act("setMode", m.id)
 		end)
 	end
+	local volumes = {
+		{ key = "volWeapons", text = "Weapons" },
+		{ key = "volHits", text = "Hits" },
+		{ key = "volFootsteps", text = "Footsteps" },
+		{ key = "volPickups", text = "Pickups" },
+		{ key = "volUi", text = "Interface" },
+		{ key = "volAmbient", text = "Ambient" },
+		{ key = "volVeil", text = "Veil" },
+		{ key = "volVoice", text = "Voices" },
+	}
+	local defaults = Prefs.defaultSettings()
+	local base = #opts + 3
+	for i, v in ipairs(volumes) do
+		local n = s.settings[v.key]
+		if type(n) ~= "number" then
+			n = defaults[v.key]
+		end
+		local rf = row(44, base + i - 1)
+		UI.label(string.format("%s  %d%%", v.text, math.floor((n :: number) * 100 + 0.5)), { Size = UDim2.new(1, -150, 1, 0), TextSize = 16, Font = T.body, Parent = rf })
+		local function bump(delta: number)
+			local cur = s.settings[v.key]
+			if type(cur) ~= "number" then
+				cur = defaults[v.key]
+			end
+			local nxt = math.clamp(math.floor(((cur :: number) + delta) * 10 + 0.5) / 10, 0, 1)
+			Net.act("setting", v.key, nxt)
+		end
+		UI.button("−", T.card, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -52, 0.5, 0), Size = UDim2.new(0, 40, 0, 32), TextColor3 = T.text, Parent = rf }, function()
+			bump(-0.1)
+		end)
+		UI.button("+", T.card, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.new(0, 40, 0, 32), TextColor3 = T.text, Parent = rf }, function()
+			bump(0.1)
+		end)
+	end
+	note("Each slider is saved on its own. Sound effects OFF mutes all of them.", base + #volumes)
 	-- v6: Rusty's checklist. Skipped (or timed out) players can bring it back and still earn the reward.
 	local cl = s.checklist
 	if cl then
-		local r = row(48, #opts + 2)
+		local r = row(48, base + #volumes + 1)
 		local status = if cl.finished then ("Rusty's checklist: done. " .. cl.rewardName .. " unlocked")
 			elseif cl.canReopen then ("Rusty's checklist (finish it for the " .. cl.rewardName .. " title)")
 			else "Rusty's checklist: showing in the top-left"

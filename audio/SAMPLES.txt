@@ -1,0 +1,49 @@
+original synthesized samples
+peak is the file peak after normalize
+uploadId in SfxIds stays 0 until these are uploaded
+
+bow-draw.wav	0.180s	peak 0.32
+bow-release.wav	0.160s	peak 0.34
+spear-swing.wav	0.200s	peak 0.30
+spear-throw.wav	0.140s	peak 0.30
+knife-swing.wav	0.080s	peak 0.28
+shove.wav	0.140s	peak 0.30
+equip.wav	0.120s	peak 0.26
+hit-light.wav	0.090s	peak 0.32
+hit-heavy.wav	0.140s	peak 0.30
+hurt.wav	0.100s	peak 0.26
+knockout.wav	0.360s	peak 0.28
+knock-confirm.wav	0.080s	peak 0.26
+foot-grass.wav	0.090s	peak 0.22
+foot-dirt.wav	0.100s	peak 0.22
+foot-stone.wav	0.060s	peak 0.24
+foot-wood.wav	0.090s	peak 0.24
+foot-metal.wav	0.050s	peak 0.20
+foot-water.wav	0.160s	peak 0.20
+foot-glass.wav	0.050s	peak 0.16
+foot-default.wav	0.080s	peak 0.20
+foot-land.wav	0.120s	peak 0.24
+pickup.wav	0.100s	peak 0.26
+crate.wav	0.120s	peak 0.24
+snack.wav	0.120s	peak 0.22
+token.wav	0.140s	peak 0.24
+parachute.wav	0.220s	peak 0.22
+ui-click.wav	0.045s	peak 0.22
+chime.wav	0.200s	peak 0.24
+win.wav	0.300s	peak 0.24
+purchase.wav	0.100s	peak 0.22
+gift.wav	0.120s	peak 0.22
+cutscene.wav	0.260s	peak 0.22
+arena-air.wav	0.250s	peak 0.14
+lobby-air.wav	0.220s	peak 0.12
+ambient-arena.wav	2.800s	peak 0.12
+ambient-lobby.wav	2.800s	peak 0.10
+veil-touch.wav	0.280s	peak 0.18
+veil-warn.wav	0.360s	peak 0.20
+veil-soon.wav	0.160s	peak 0.18
+veil-core.wav	0.200s	peak 0.20
+veil-break.wav	0.260s	peak 0.20
+hazard.wav	0.200s	peak 0.20
+pact-warn.wav	0.160s	peak 0.20
+
+mix preview audio/daybreak-mix-preview.wav 2.86s

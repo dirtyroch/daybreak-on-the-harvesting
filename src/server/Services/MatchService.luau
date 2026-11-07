@@ -761,7 +761,7 @@ function MatchService.attack(c: Contender, wid: string, aim: Vector3?): boolean
 			end
 		end
 	end
-	pushMatch("swing", { id = c.id, weapon = wid })
+	pushMatch("swing", { id = c.id, weapon = wid, at = root.Position })
 	if best then
 		MatchService.damage(best, math.floor(w.damage * mult + 0.5), c, wid, math.floor(bestD))
 	end

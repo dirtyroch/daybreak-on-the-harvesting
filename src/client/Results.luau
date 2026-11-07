@@ -16,6 +16,7 @@ local Net = require(script.Parent.Net)
 local Fx = require(script.Parent.Fx)
 local Sfx = require(script.Parent.Sfx)
 local Hud = require(script.Parent.Hud)
+local View = require(script.Parent.View)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared.Names)
 local Rusty = require(script.Parent.Rusty)
@@ -90,6 +91,7 @@ local function killcam(d: any)
 		return
 	end
 	local from: Vector3 = d.from or (d.at + Vector3.new(0, 8, 14))
+	View.hold()
 	cam.CameraType = Enum.CameraType.Scriptable
 	local mid = d.at:Lerp(from, 0.5) + Vector3.new(0, 10, 0)
 	cam.CFrame = CFrame.lookAt(d.at + Vector3.new(6, 6, 6), d.at)
@@ -103,6 +105,7 @@ local function killcam(d: any)
 	end
 	task.delay(3, function()
 		cam.CameraType = Enum.CameraType.Custom
+		View.release()
 	end)
 end
 
@@ -181,7 +184,7 @@ function Results.mount(parent: Frame)
 		Fx.toast(string.format("Next match in %ds. %d queued.", d.seconds, d.queued), "info")
 	end)
 	Net.on("knocked", function(d)
-		Sfx.play("crunch")
+		Sfx.play("knockConfirm")
 		Fx.pop(string.format("Knocked out %s! %d left", d.name, d.left), T.gold, 30)
 	end)
 	Net.on("feed", function(d)
@@ -189,7 +192,7 @@ function Results.mount(parent: Frame)
 			Fx.toast(string.format("🤝 Pact formed: %s%s", d.victim, d.by and (" + " .. d.by) or ""), "info")
 			return
 		elseif d.kind == "pactSnap" then
-			Sfx.play("hiss", 1.2, 0.05)
+			Sfx.play("pactWarn")
 			Fx.toast(string.format("💔 %s snapped their pact with %s!", d.by, d.victim), "bad")
 			return
 		elseif d.kind == "betrayal" then

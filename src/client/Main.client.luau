@@ -21,6 +21,8 @@ local Results = require(script.Parent.Results)
 local AnimPlayer = require(script.Parent.AnimPlayer)
 local OfferCard = require(script.Parent.OfferCard)
 local V5 = require(script.Parent.V5)
+local View = require(script.Parent.View)
+local WorldAudio = require(script.Parent.WorldAudio)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Names = require(Shared.Names)
@@ -43,6 +45,7 @@ rescale()
 workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
 
 Sfx.mount()
+WorldAudio.start()
 UI.onClick = function()
 	Sfx.play("click", nil, 0.05)
 end
@@ -55,6 +58,11 @@ OfferCard.mount(root)
 AnimPlayer.start()
 Cutscene.mount(root)
 V5.mount(root)
+View.mount(root)
+View.start()
+View.menuOpen = function()
+	return Panels.isOpen()
+end
 Net.notify = Fx.toast
 
 pcall(function()
@@ -76,7 +84,7 @@ Net.on("matchStart", function(d)
 	Fx.toast(string.format("%s begins: %d players + %d %ss.", Names.EVENT_SHORT, d.humans, d.bots, Names.BOT_TAG), "info")
 end)
 Net.on("hazard", function(d)
-	Sfx.play("hiss", nil, 1)
+	Sfx.play("hazard")
 	Fx.announce(d.name, UI.Theme.red, 2.4)
 	Fx.toast(d.text, "bad")
 end)
@@ -93,7 +101,6 @@ Net.on("pep", function(d)
 	end
 end)
 Net.on("loot", function(d)
-	Sfx.play("pop", nil, 0.05)
 	Fx.toast("Found: " .. d.name, "good")
 end)
 Net.on("token", function(d)
@@ -106,7 +113,7 @@ Net.on("pactOffer", function(d)
 	Fx.toast(string.format("%s (%s) wants a pact. Y to accept, N to decline (%ds).", d.name, d.reach, d.seconds), "info")
 end)
 Net.on("pactWarning", function(d)
-	Sfx.play("hiss", 1.3)
+	Sfx.play("pactWarn")
 	Fx.announce("⚠ " .. d.name .. " is snapping your pact!", UI.Theme.red, d.seconds)
 end)
 Net.on("pactSnapped", function(d)
@@ -121,12 +128,12 @@ Net.on("pactsEnded", function(d)
 	Fx.announce(string.format("Final %d: every pact is over", d.left), UI.Theme.gold, 2.4)
 end)
 Net.on("veilCore", function()
-	Sfx.play("hiss", 0.7)
+	Sfx.play("veilCore")
 	Fx.announce("The Veil Core is glowing", UI.Theme.veil, 2.6)
 	Fx.toast("Bounce a thrown spear off " .. Names.VEIL .. " into the Core to break the dome.", "info")
 end)
 Net.on("veilBroken", function(d)
-	Sfx.play("fanfare")
+	Sfx.play("veilBreak")
 	Fx.announce(string.format("💥 %s broke the dome!", d.by), UI.Theme.veil, 3)
 	Fx.toast(string.format("%s is calm for %ds.", Names.VEIL, d.seconds), "good")
 end)
@@ -157,8 +164,12 @@ Net.on("podiumShow", function(d)
 		return
 	end
 	local cam = workspace.CurrentCamera
+	if not cam then
+		return
+	end
 	podiumToken += 1
 	local my = podiumToken
+	View.hold()
 	cam.CameraType = Enum.CameraType.Scriptable
 	cam.CFrame = d.camera
 	local names = {}
@@ -169,6 +180,9 @@ Net.on("podiumShow", function(d)
 	task.delay(d.seconds or 6, function()
 		if podiumToken == my and Hud.mode ~= "arena" then
 			cam.CameraType = Enum.CameraType.Custom
+			View.release()
+		elseif podiumToken == my then
+			View.release()
 		end
 	end)
 end)
@@ -213,18 +227,42 @@ local function arena(): boolean
 	return Hud.mode == "arena" and not Cutscene.playing
 end
 
+-- Third person keeps mouse.Hit. First person sends the shoulder aim, not the eye ray.
+local function aimPoint(): Vector3
+	if View.isFirst() then
+		return View.shotAim()
+	end
+	return player:GetMouse().Hit.Position
+end
+View.onUse = function()
+	if arena() and not Panels.isOpen() then
+		Net.act("use", aimPoint())
+	end
+end
+View.onThrow = function()
+	if arena() and not Panels.isOpen() then
+		Net.act("throw", aimPoint())
+	end
+end
+
 UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
+	if input.KeyCode == Enum.KeyCode.ButtonR2 then
+		View.onUse()
+		return
+	elseif input.KeyCode == Enum.KeyCode.ButtonL2 then
+		View.onThrow()
+		return
+	end
 	if processed then
 		return
 	end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		if arena() and not Panels.isOpen() then
-			local mouse = player:GetMouse()
-			Net.act("use", mouse.Hit.Position)
+			Net.act("use", aimPoint())
 		end
 	elseif input.UserInputType == Enum.UserInputType.MouseButton2 or input.KeyCode == Enum.KeyCode.Q then
 		if arena() and not Panels.isOpen() then
-			Net.act("throw", player:GetMouse().Hit.Position)
+			Net.act("throw", aimPoint())
 		end
 	elseif input.KeyCode == Enum.KeyCode.LeftShift then
 		setSprint(true)
@@ -267,10 +305,8 @@ task.spawn(function()
 		local ok, err = pcall(function(): any
 			Hud.update()
 			if Net.state and Net.state.settings then
-				local want = Net.state.settings.sfx ~= false
-				if want ~= Sfx.isEnabled() then
-					Sfx.setEnabled(want)
-				end
+				Sfx.apply(Net.state.settings)
+				View.apply(Net.state.settings)
 			end
 			return nil
 		end)
